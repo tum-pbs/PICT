@@ -1,4 +1,6 @@
 
+![](images/banner.png)
+
 # Official homepage of the PICT Solver
 
 Highlights:
@@ -8,8 +10,6 @@ Highlights:
 - Modular CUDA optimized operators
 
 [Preprint available here!](https://ge.in.tum.de/download/PICT-preprint.pdf)
-
-![](images/banner.png)
 
 ...
 
