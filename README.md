@@ -1,7 +1,19 @@
-# README #
 
-Source code of the paper *PICT - A Differentiable, GPU-Accelerated Multi-Block PISO Solver for Simulation-Coupled Learning Tasks in Fluid Dynamics*.  
-[arXiv preprint](https://arxiv.org/abs/)
+![](images/banner.png)
+
+# Official Repository of the PICT Solver
+
+Source code of the paper *PICT - A Differentiable, GPU-Accelerated Multi-Block PISO Solver for Simulation-Coupled Learning Tasks in Fluid Dynamics*:  
+[arXiv preprint](https://arxiv.org/abs/)  
+[Preprint](https://ge.in.tum.de/download/PICT-preprint.pdf)  
+
+Highlights:
+- Validated 2nd-order PISO solver with flexible, deformed multi-block domains
+- Seamless AI, deep learning, and neural network integration via PyTorch
+- Fully differentiable
+- Modular CUDA operators for efficient simulation at training and inference time
+
+[Feel free to also check out the other work of our lab :)](https://ge.in.tum.de/publications/)
 
 ## Setup
 
@@ -99,5 +111,4 @@ and to the same file in `$CONDA_PREFIX/etc/conda/deactivate.d`:
 export LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
 unset OLD_LD_LIBRARY_PATH
 ```
-
 
