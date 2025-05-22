@@ -9,8 +9,13 @@ Highlights:
 
 [Preprint available here!](https://ge.in.tum.de/download/PICT-preprint.pdf)
 
-The relation is shown here:
-![](images/PICT-logo-v01.png)
+![](images/banner.png)
+
+...
+
+...
+
+...
 
 [Please also check out the other work of our lab :)](https://ge.in.tum.de/publications/)
 
