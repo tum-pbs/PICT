@@ -1,0 +1,13 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+# use the highest 3.10.x that is available
+python>=3.10,<3.11
+pip
+gcc_linux-64>=6.0,<=11.5
+gxx_linux-64>=6.0,<=11.5
+scipy
+numpy
+matplotlib
+imageio
+psutil
