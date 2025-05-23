@@ -1,5 +1,5 @@
 
-![](images/banner.png)
+![PICT logo](images/banner.png)
 
 # Official Repository of the PICT Solver
 
@@ -53,7 +53,9 @@ To install, e.g., PyTorch 2.6 with CUDA 11.8, the last two steps of the setup be
 
 We provide a few sample setup with extensive comments about simulation setup.
 For forward simulations `minimal_lid_sample.py`, `vortex_street_torus_sample.py`, and `test_airfoil.py` contain increasingly complex setups.
-For a learning setup `learning_sample.py` contains an example of learning a forcing term from a reference simulation, both with direct optimization and training a network.
+For a learning setup `learning_sample.py` contains an example of learning a forcing term from a reference simulation, both with direct optimization and training a network.  
+
+![Flow around a rotating cylidrical obstacle and an airfoil.](images/obstacle-flow_vis.jpg)
 
 ## Overview of the PICT System
 
