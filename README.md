@@ -4,7 +4,7 @@
 # Official Repository of the PICT Solver
 
 Source code of the paper *PICT - A Differentiable, GPU-Accelerated Multi-Block PISO Solver for Simulation-Coupled Learning Tasks in Fluid Dynamics*:  
-[arXiv preprint](https://arxiv.org/abs/)  
+[arXiv preprint](https://arxiv.org/abs/2505.16992)  
 [Preprint](https://ge.in.tum.de/download/PICT-preprint.pdf)  
 
 Highlights:
