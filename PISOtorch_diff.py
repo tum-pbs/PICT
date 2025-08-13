@@ -701,9 +701,9 @@ def CopyVelocityResultToBlocks(domain):
             with SAMPLE("CopyVelocityResultToBlocks-FWD"):
                 if _LOG_DEBUG: _LOG.info("copy velocity to forward")
                 
-                domain.CreateVelocityOnBlocks()
-                domain.UpdateDomainData()
-                PISOtorch.CopyVelocityResultToBlocks(domain)
+                domain.CreateVelocityOnBlocks()# 为域内每个 block 创建并挂载其本地速度张量（形状为维度数）
+                domain.UpdateDomainData()# 如果域的张量有变更，则把最新的各类指针/尺寸等元数据写入 CPU 端的“域/块”结构（atlas），使 CUDA 侧能拿到正确的内存地址；未变更则跳过。
+                PISOtorch.CopyVelocityResultToBlocks(domain)# 将全局拼接在 domain.velocityResult 里的速度结果，按每个 block 的 offset/大小拷贝回各自的 block.velocity（逐维做 GPU 端 cudaMemcpy）。
                 
                 return (*[block.velocity for block in domain.getBlocks()],) #.clone()
         
