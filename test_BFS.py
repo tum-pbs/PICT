@@ -15,6 +15,7 @@ import torch
 import PISOtorch # domain data structures and core PISO functions. check /extensions/PISOtorch.cpp to see what is available
 import PISOtorch_simulation # uses core PISO functions to make full simulation steps
 import lib.data.shapes as shapes
+import lib.util.domain_io as domain_io
 from lib.util.output import plot_grids
 
 # PISOtorch is only implemented for GPU
@@ -261,9 +262,44 @@ def make3BlockBackwardFacingStepSetupRefined(grids, z:int=0, z_size:float=1, in_
 
     return domain, {"PRE": prep_fn}, layout, resample_shape
 
+def load_BFS_domain(path, dtype=torch.float32):
+    layout = [[-1,2],[0,1]] # used by output formatting
+    
+    domain = domain_io.load_domain(path, dtype=dtype, device=cuda_device)
+    dims = domain.getSpatialDims()
+    
+    Btl = domain.getBlock(0)
+    Btr = domain.getBlock(1)
+    Bbr = domain.getBlock(2)
+    
+    Gtl = Btl.vertexCoordinates
+    Gtr = Btr.vertexCoordinates
+    Gbr = Bbr.vertexCoordinates
+    
+    x_size = Gtr[0,0,0,-1] - Gtl[0,0,0,0]
+    y_size = Gtr[0,1,-1,0] - Gbr[0,1,0,0]
+    resample_res = 32
+    resample_shape = [int(x_size*resample_res), int(y_size*resample_res)] # xyz
+    
+    inflow = Btl.getBoundary("-x").velocity[:,0:1,...]
+    in_size = Gtl[0,1,-1,0] - Gtl[0,1,0,0]
+    in_flux = inflow * torch.abs(Gtl[0:1,1:2,1:,0:1] - Gtl[0:1,1:2,:-1,0:1]) # 11y1
+    mean_in = torch.sum(in_flux) / in_size
+    
+    out_size = Gtr[0,1,-1,0] - Gbr[0,1,0,0]
+    mean_out = mean_in*in_size/out_size
+    char_vel = torch.tensor([[mean_out]+[0]*(dims-1)], device=cuda_device, dtype=dtype) # NC
+    
+    out_bound_indices = [(1,"+x"), (2,"+x")]
+    prep_fn = lambda domain, time_step, **kwargs: PISOtorch_simulation.update_advective_boundaries(domain, [domain.getBlock(idx).getBoundary(bound) for idx, bound in out_bound_indices], char_vel, time_step.cuda())
+
+    domain.PrepareSolve()
+
+    return domain, {"PRE": prep_fn}, layout, resample_shape
+
 RUN_ID = 0
 
-def run_BFS(log_dir, name, iterations=100, time_step=1, res_scale=8, viscosity=5e-2, closed_bounds=False, use_3D=False, dp=False, STOP_FN=None):
+def run_BFS(log_dir, name, iterations=100, time_step=1, res_scale=8, viscosity=5e-2, closed_bounds=False, use_3D=False, dp=False, STOP_FN=None, load_domain_path=None):
     global RUN_ID
     if STOP_FN():
         return
@@ -271,44 +307,47 @@ def run_BFS(log_dir, name, iterations=100, time_step=1, res_scale=8, viscosity=5
     substeps = -1 #-1 for adaptive, -2 for adaptive based in initial conditions (including boundaries)
     dtype = torch.float64 if dp else torch.float32
 
-    y_res_scale = 64
-    top_bot_grow_factor_global = 2
-    top_bot_grow_factor = top_bot_grow_factor_global**(1/(y_res_scale//2 - 1))#1.05
-    
-    out_scale = 36 #8
-    out_grow_factor_global = 20 if res_scale<30 else 7 #7
-    out_grow_factor = out_grow_factor_global**(1/(out_scale*res_scale - 1))
-    
-    in_scale = 5
-    in_grow_factor_global = out_grow_factor_global
-    in_grow_factor = "AUTO" #in_grow_factor_global**(1/(in_scale*res_scale - 1)) #out_grow_factor #"AUTO"
+    if load_domain_path:
+        domain, prep_fn, layout, resample_shape = load_BFS_domain(load_domain_path, dtype=dtype)
+    else:
+        y_res_scale = 64
+        top_bot_grow_factor_global = 2
+        top_bot_grow_factor = top_bot_grow_factor_global**(1/(y_res_scale//2 - 1))#1.05
+        
+        out_scale = 36 #8
+        out_grow_factor_global = 20 if res_scale<30 else 7 #7
+        out_grow_factor = out_grow_factor_global**(1/(out_scale*res_scale - 1))
+        
+        in_scale = 5
+        in_grow_factor_global = out_grow_factor_global
+        in_grow_factor = "AUTO" #in_grow_factor_global**(1/(in_scale*res_scale - 1)) #out_grow_factor #"AUTO"
 
-    LOG.info("%dD BFS #%d '%s' with %s bounds, resolution scale %d, %d iterations with time step %.02e, viscosity %.02e",
-             3 if use_3D else 2, RUN_ID, name, "closed" if closed_bounds else "open",
-             res_scale, iterations, time_step, viscosity)
-    
-    LOG.info("grid refinement (exp base): top/bot=%s, in=%s, out=%s (global %s)", top_bot_grow_factor, in_grow_factor, out_grow_factor, out_grow_factor_global)
-    
-    vel = 1.0
-    
-    if substeps==-2:
-        #overwrite the default time-step estimation since the velocity around the obstacle can be larger than the inflow
-        ts = 5e-2 * 8 * (scale if scale is not None else 1) * 1/vel
-        substeps = max(1, int(time_step/ts)) #* 8
+        LOG.info("%dD BFS #%d '%s' with %s bounds, resolution scale %d, %d iterations with time step %.02e, viscosity %.02e",
+                 3 if use_3D else 2, RUN_ID, name, "closed" if closed_bounds else "open",
+                 res_scale, iterations, time_step, viscosity)
+        
+        LOG.info("grid refinement (exp base): top/bot=%s, in=%s, out=%s (global %s)", top_bot_grow_factor, in_grow_factor, out_grow_factor, out_grow_factor_global)
+        
+        vel = 1.0
+        
+        if substeps==-2:
+            #overwrite the default time-step estimation since the velocity around the obstacle can be larger than the inflow
+            ts = 5e-2 * 8 * (scale if scale is not None else 1) * 1/vel
+            substeps = max(1, int(time_step/ts)) #* 8
 
-    #time_step = ts
-    LOG.info("setting time step to %.02e, substeps to %d", time_step, substeps)
-    
-    grids = make_refined_grid(
-        top_y_res=1*y_res_scale, top_size=1, top_grow_factor=top_bot_grow_factor,
-        bot_y_res=1*y_res_scale, bot_size=1, bot_grow_factor=top_bot_grow_factor,
-        in_x_res=2*res_scale, in_size=5, in_grow_factor=in_grow_factor,
-        out_x_res=out_scale*res_scale, out_size=out_scale, out_grow_factor=out_grow_factor,
-        dtype=dtype)
-    plot_grids(grids, color=["r","g","b"], path=log_dir)
-    
-    domain, prep_fn, layout, resample_shape = make3BlockBackwardFacingStepSetupRefined(grids, z=3*res_scale if use_3D else None, z_size=3,
-                                in_vel=4.0 if closed_bounds else vel, in_var=0.4, closed_y=closed_bounds, closed_z=closed_bounds, viscosity=viscosity, dtype=dtype)
+        #time_step = ts
+        LOG.info("setting time step to %.02e, substeps to %d", time_step, substeps)
+        
+        grids = make_refined_grid(
+            top_y_res=1*y_res_scale, top_size=1, top_grow_factor=top_bot_grow_factor,
+            bot_y_res=1*y_res_scale, bot_size=1, bot_grow_factor=top_bot_grow_factor,
+            in_x_res=2*res_scale, in_size=5, in_grow_factor=in_grow_factor,
+            out_x_res=out_scale*res_scale, out_size=out_scale, out_grow_factor=out_grow_factor,
+            dtype=dtype)
+        plot_grids(grids, color=["r","g","b"], path=log_dir)
+        
+        domain, prep_fn, layout, resample_shape = make3BlockBackwardFacingStepSetupRefined(grids, z=3*res_scale if use_3D else None, z_size=3,
+                                    in_vel=4.0 if closed_bounds else vel, in_var=0.4, closed_y=closed_bounds, closed_z=closed_bounds, viscosity=viscosity, dtype=dtype)
     
     max_vel = domain.getMaxVelocity(True, True).cpu().numpy()
     LOG.info("Domain max vel: %s", max_vel)
@@ -347,7 +386,8 @@ if __name__=="__main__":
 
     #vortex_street_sample(run_dir, name="turbulent_open_r32", res_scale=32, iterations=2, time_step=0.1, viscosity=5e-3, closed_bounds=False, use_3D=False, dp=False, STOP_FN=stop_handler)
     
-    run_BFS(run_dir, name="closed_r16-y64_out-g20", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
+    #run_BFS(run_dir, name="closed_r16-y64_out-g20", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
+    run_BFS(run_dir, name="closed_r16-y64_out-g20_cnt200", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler, load_domain_path='./test_runs/250909-125028_BFS-hao-v4e-4_in-auto_refined.05_it200-ts.25-adaptive_CG-maxIT5k_ortho_vel-init_char-vel-mean-out/0000_vortex_street_closed_r16-y64_out-g20/domain')
     #run_BFS(run_dir, name="closed_r32-y64_out-g7", res_scale=32, iterations=4, time_step=0.01, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
 
 

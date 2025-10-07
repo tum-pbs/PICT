@@ -76,9 +76,15 @@ def buoyancy_fn(domain, time_step, **kwargs):
     block.setVelocitySource(torch.cat([vel_src_velX_pad, block.passiveScalar * buoyancy_factor], dim=1))
     domain.UpdateDomainData()
 
+def clamp_density(domain, **kwargs):
+    block = domain.getBlock(0)
+    block.setPassiveScalar(torch.clamp(block.passiveScalar, min=0).contiguous())
+    domain.UpdateDomainData()
+
 prep_fn = {
     "PRE": [density_inflow_fn,],
     "PRE_VELOCITY_SETUP": [buoyancy_fn,],
+    "POST": clamp_density
 }
 
 # setup simulation
