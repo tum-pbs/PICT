@@ -13,7 +13,6 @@ const int8_t NON_ORTHO_DIAGONAL_RHS = 8;
 const int8_t NON_ORTHO_CENTER_MATRIX = 16;
 
 
-
 /** Build the matrix for the advection-diffusion system (prediction step)
   * inputs:
   * - domain.viscosity
@@ -119,6 +118,8 @@ void CorrectVelocity(std::shared_ptr<Domain> domain, const torch::Tensor &timeSt
 
 torch::Tensor ComputeVelocityDivergence(std::shared_ptr<Domain> domain);
 torch::Tensor ComputePressureGradient(std::shared_ptr<Domain> domain, const bool useFVM, const index_t gradientInterpolation);
+
+std::vector<std::vector<torch::Tensor>> ComputeSpatialVelocityGradients(std::shared_ptr<Domain> domain);
 
 /** Compute dot(transform.T, vector), or dot(transform.T_inv, vector) if inverse.
   * Output to new tensor.

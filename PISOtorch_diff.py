@@ -1295,3 +1295,77 @@ def detach_domain_grad(domain):
 def detach_domain(domain):
     detach_domain_fwd(domain)
     detach_domain_grad(domain)
+
+
+def matmul(vectorMatrixA:torch.Tensor, vectorMatrixB:torch.Tensor,
+        transposeA:bool = False, invertA:bool = False,
+        transposeB:bool = False, invertB:bool = False,
+        transposeOutput:bool = False, invertOutput:bool = False
+    ) -> torch.Tensor:
+    """ compute the product matrix/vector * matrix/vector of matrices/vectors in the channel dimension.
+    inputs:
+    - vectorMatrixA: NCDHW tensor with a vectors or flat row-major matrices in the C dimension.
+    - vectorMatrixB: NCDHW tensor with a vectors or flat row-major matrices in the C dimension.
+    - transpose: transpose the matrix after loading/before writing. only affects matrices.
+    - invert: invert the matrix after loading/before writing. only affects matrices.
+    outputs:
+    - NCDHW tensor with a channel structure corresponding to the inputs:
+        matrix if both A and B are matrices,
+        vector if exacly one of A or B is a matrix,
+        scalar if both A and B are vectors
+    """
+    
+    class matmulFunction(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, vectorMatrixA, vectorMatrixB):
+            with SAMPLE("matmul-FWD"):
+                if _LOG_DEBUG: _LOG.info("matmul forward")
+
+                ctx.transposeA = transposeA
+                ctx.invertA = invertA
+                ctx.transposeB = transposeB
+                ctx.invertB = invertB
+                ctx.transposeOutput = transposeOutput
+                ctx.invertOutput = invertOutput
+                
+                ctx.save_for_backward(vectorMatrixA, vectorMatrixB)
+                
+                result = PISOtorch.matmul(vectorMatrixA, vectorMatrixB,
+                    transposeA, invertA,
+                    transposeB, invertB,
+                    transposeOutput, invertOutput
+                )
+            
+            return result
+        
+        @staticmethod
+        @torch.autograd.function.once_differentiable
+        def backward(ctx, result_grad):
+            if any(ctx.needs_input_grad):
+                with SAMPLE("matmul-BWD"):
+                    if _LOG_DEBUG: _LOG.info("matmul backward")
+                    
+                    if ctx.invertOutput:
+                        raise NotImplementedError("Can not compute gradients for inverted matrices (output).")
+                    if ctx.needs_input_grad[0] and ctx.invertA:
+                        raise NotImplementedError("Can not compute gradients for inverted matrices (input A).")
+                    if ctx.needs_input_grad[1] and ctx.invertB:
+                        raise NotImplementedError("Can not compute gradients for inverted matrices (input B).")
+                    
+                    vectorMatrixA, vectorMatrixB = ctx.saved_tensors
+                    
+                    # returns 0 gradient if the matrix is inverted
+                    vectorMatrixA_grad, vectorMatrixB_grad = PISOtorch.matmulGrad(vectorMatrixA, vectorMatrixB, result_grad,
+                        ctx.transposeA, ctx.invertA,
+                        ctx.transposeB, ctx.invertB,
+                        ctx.transposeOutput, ctx.invertOutput
+                    )
+                    
+                    grad_tensors = ( (vectorMatrixA_grad if ctx.needs_input_grad[0] else None), (vectorMatrixB_grad if ctx.needs_input_grad[1] else None))
+            else:
+                if _LOG_DEBUG: _LOG.info("matmul backward empty")
+                grad_tensors = (None, None)
+            
+            return (*grad_tensors, )
+
+    return matmulFunction.apply(vectorMatrixA, vectorMatrixB)

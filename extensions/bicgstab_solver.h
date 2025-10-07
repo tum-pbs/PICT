@@ -43,7 +43,7 @@ template <typename scalar_t>
 extern solverReturn_t cgSolveGPU(const scalar_t *aVal, const index_t *aIndex, const index_t *aRow, const index_t n, const index_t nnz, const scalar_t *_f, scalar_t *_x, const index_t nBatches,
 	const index_t maxit, const scalar_t tol, const ConvergenceCriterion conv,  const bool laplace_rank_deficient, const index_t residual_reset_steps, const scalar_t *aDiag, const bool transposeA, const bool printResidual, const bool returnBestResult);
 
-/* needs update for CUDA 12
+/*
 template <typename scalar_t>
 extern solverReturn_t cgSolvePreconGPU(const scalar_t *aVal, const index_t *aIndex, const index_t *aRow, const index_t n, const index_t nnz, const scalar_t *_f, scalar_t *_x, const index_t nBatches,
 	const index_t maxit, const scalar_t tol, const ConvergenceCriterion conv, const index_t residual_reset_steps, const scalar_t *aDiag, const bool transposeA, const bool printResidual, const bool returnBestResult);

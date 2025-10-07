@@ -5,6 +5,9 @@
 #include "PISO_multiblock_cuda.h"
 #include "grid_gen.h"
 #include "resampling.h"
+#include "eigenvalue.h"
+#include "ortho_basis.h"
+#include "matrix_vector_ops.h"
 
 // File for the python bindings. The file has to have the same name as the python module for some build systems to work.
 
@@ -243,6 +246,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 			py::arg("transform"), py::arg("faceTransform")=nullopt)
 		.def_readonly("transform", &Block::m_transform)
 		.def("hasTransform", &Block::hasTransform)
+		.def("getCellSizes", &Block::getCellSizes, "Returns the block's cell sizes as NCDHW tensor (with C=1)")
 		.def_readonly("faceTransform", &Block::m_faceTransform)
 		.def("hasFaceTransform", &Block::hasFaceTransform)
 		.def("clearCoordsTransforms", &Block::clearCoordsTransforms, "Clears any set coordinates or transformations.")
@@ -293,7 +297,16 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 			"Returns a list of pairs (boundary index, boundary) containing only the fixed boundaries of this block.")
 		.def("isAllFixedBoundariesPassiveScalarTypeStatic", &Block::isAllFixedBoundariesPassiveScalarTypeStatic)
 		.def("ConnectBlock", static_cast<void (Block::*)(const dim_t, std::shared_ptr<Block>, const dim_t, const dim_t, const dim_t)>(&Block::ConnectBlock),
-			"Make a connection between this block and another",
+			"Make a connection between this block and another."
+			"directional face specification: [-x,+x,-y,+y,-z,+z] <-> [0,5]"
+			"=> axis := face/2 ([x,y,z] <-> [0,2])"
+			"=> direction := face%2, 0 is lower/negative side, 1 is upper/positive side"
+			"	for 'axisIndex' the direction indicates if the connection is inverted (0 for same direction, 1 for inverted)"
+			"faceIndex of the block is connected to otherFaceIndex of otherBlock."
+			"for 2D and 3D, the remaining axes are also mapped:"
+			"	faceIndex connects to otherFaceIndex"
+			"	axis[(faceIndex / 2 + 1)%dims] is aligned to axis1Index. The connection is inverted if axis1Index%2==1."
+			"	axis[(faceIndex / 2 + 2)%dims] is aligned to axis2Index. The connection is inverted if axis2Index%2==1.",
 			py::arg("faceIndex"), py::arg("otherBlock"), py::arg("otherFaceIndex"), py::arg("axis1Index")=-1, py::arg("axis2Index")=-1)
 		.def("ConnectBlock", static_cast<void (Block::*)(const std::string&, std::shared_ptr<Block>, const std::string&, const std::string&, const std::string&)>(&Block::ConnectBlock),
 			"Make a connection between this block and another",
@@ -514,6 +527,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 		py::arg("domain"), py::arg("timeStep"), py::arg("version")=0, py::arg("timeStepNorm")=false);
 	m.def("ComputeVelocityDivergence", &ComputeVelocityDivergence, "velocity divergence (CUDA)");
 	m.def("ComputePressureGradient", &ComputePressureGradient, "pressure gradient (CUDA)");
+	m.def("ComputeSpatialVelocityGradients", &ComputeSpatialVelocityGradients,
+		"Compute the spatial gradients of all velocity components of all blocks in the domain. Returns nested lists of tensors: [Blocks: [Components: NCDHW]]",
+		py::arg("domain"));
 	m.def("CopyScalarResultToBlocks", &CopyScalarResultToBlocks, "PISO copy scalar result (CUDA)");
 	m.def("CopyScalarResultFromBlocks", &CopyScalarResultFromBlocks, "PISO copy scalar result (CUDA)");
 	m.def("CopyPressureResultToBlocks", &CopyPressureResultToBlocks, "PISO copy pressure result (CUDA)");
@@ -584,6 +600,39 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 	m.def("CoordsToTransforms", &CoordsToTransforms, "Computes cell transformation metrics from cell vertex coordinates.");
 	m.def("CoordsToFaceTransforms", &CoordsToFaceTransforms, "Computes cell face transformation metrics from cell vertex coordinates.");
 	
+	// vector-matrix operations
+	m.def("matmul",
+		static_cast<torch::Tensor (*)(const torch::Tensor&, const torch::Tensor&, const bool, const bool, const bool, const bool, const bool, const bool)>(&matmul),
+		"Computes the product matrix/vector * matrix/vector for vectors or symmetrics matrices given in the channel dimension of NCDHW tensors."
+		"Matrices are assumed to be in a flattend row-major format."
+		"transpose and invert only apply if the quantity is a matrix.",
+		py::arg("vectorMatrixA"), py::arg("vectorMatrixB"),
+		py::arg("transposeA")=false, py::arg("invertA")=false,
+		py::arg("transposeB")=false, py::arg("invertB")=false,
+		py::arg("transposeOutput")=false, py::arg("invertOutput")=false);
+#ifdef WITH_GRAD
+	m.def("matmulGrad",
+		static_cast<std::vector<torch::Tensor> (*)(const torch::Tensor&, const torch::Tensor&, const torch::Tensor&, const bool, const bool, const bool, const bool, const bool, const bool)>(&matmulGrad),
+		"Computes gradients of the product matrix/vector * matrix/vector for vectors or symmetrics matrices given in the channel dimension of NCDHW tensors."
+		"Matrices are assumed to be in a flattend row-major format."
+		"transpose and invert only apply if the quantity is a matrix. Gradients for inverted matrices are not computed.",
+		py::arg("vectorMatrixA"), py::arg("vectorMatrixB"), py::arg("outputGrad"),
+		py::arg("transposeA")=false, py::arg("invertA")=false,
+		py::arg("transposeB")=false, py::arg("invertB")=false,
+		py::arg("transposeOutput")=false, py::arg("invertOutput")=false);
+#endif //WITH_GRAD
+	m.def("VectorToDiagMatrix", &VectorToDiagMatrix, "Writes the vector in the channel dimension into the diagonal of a flat row-major matrix in the channel dimension.",
+		py::arg("vectors"));
+	m.def("InvertMatrix", &InvertMatrix, "Returns the inverse of a square matrix in the channel dimension.",
+		py::arg("matrices"), py::arg("inPlace")=false);
+	
+	// eigen decomposition
+	m.def("EigenDecomposition", &EigenDecomposition, "Eigen decomposition of symmetric matrices (CUDA). Returns tensors eigenvalues and eigenvectors.",
+		py::arg("matrices"), py::arg("outputEigenvalues")=true, py::arg("outputEigenvectors")=true, py::arg("normalizeEigenvectors")=false);
+	m.def("MakeBasisUnique", &MakeBasisUnique, "Makes a given set of orthogonal basis vectors (as colums in flat row-major matrices) unique (CUDA).",
+		py::arg("basisMatrices"), py::arg("sortingVectors"), py::arg("inPlace")=false);
+	
+	
 	// resampling
 	py::enum_<BoundarySampling>(m, "BoundarySampling")
 		.value("CONSTANT", BoundarySampling::CONSTANT)
@@ -602,4 +651,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 	m.def("SampleTransformedGridLocalToGlobalMulti", &SampleTransformedGridLocalToGlobalMulti,
 		"Version of SampleTransformedGridLocalToGlobal with multiple input grids.",
 		py::arg("localData"), py::arg("localCoords"), py::arg("globalTransform"), py::arg("globalShape"), py::arg("fillMaxSteps")=0);
+
 }

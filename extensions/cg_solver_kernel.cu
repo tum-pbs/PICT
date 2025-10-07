@@ -462,7 +462,6 @@ template solverReturn_t cgSolveGPU<double>(const double *aVal, const index_t *aI
 	const index_t maxit, const double tol, const ConvergenceCriterion conv,  const bool laplaceRankDeficient, const index_t residualResetSteps, const double *aDiag, const bool transposeA,
 	const bool printResidual, const bool returnBestResult);
 
-// TODO: needs update for CUDA 12: cusparseTcsrsv2 -> cusparseSpSV
 /*
 template <typename scalar_t>
 solverReturn_t cgSolvePreconGPU(const scalar_t *aVal, const index_t *aIndex, const index_t *aRow, const index_t n, const index_t nnz, const scalar_t *_f, scalar_t *_x, const index_t nBatches,

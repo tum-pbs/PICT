@@ -1,6 +1,5 @@
 #include "resampling.h"
-#include "domain_structs.h"
-#include "transformations.h"
+#include "dispatch.h"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -8,77 +7,7 @@
 #include <iostream>
 #include <iomanip>
 
-static void CheckCudaErrorAux(const char* file, unsigned line, const char* statement, cudaError_t err) {
-  if (err == cudaSuccess) return;
-  std::cerr << statement << " returned " << cudaGetErrorString(err) << "("
-            << err << ") at " << file << ":" << line << std::endl;
-  exit(10);
-}
-#define CUDA_CHECK_RETURN(value) CheckCudaErrorAux(__FILE__, __LINE__, #value, value)
 
-
-#define SWITCH_DIMS_CASE(DIM, ...) \
-	case DIM: { \
-		const index_t dim = DIM; \
-		__VA_ARGS__; \
-		break; \
-	}
-
-#define SWITCH_DIMS_SWITCH(DIMS, ...) \
-	switch(DIMS) { \
-		__VA_ARGS__ \
-		default: \
-			TORCH_CHECK(false, "Unknown dimension."); \
-	}
-
-#define SWITCH_DIMS(DIM, ...) \
-	SWITCH_DIMS_SWITCH(DIM, SWITCH_DIMS_CASE(1, __VA_ARGS__) SWITCH_DIMS_CASE(2, __VA_ARGS__) SWITCH_DIMS_CASE(3, __VA_ARGS__))
-
-#define DISPATCH_FTYPES_DIMS(FTYPE, DIMS, NAME, ...) \
-	AT_DISPATCH_FLOATING_TYPES(FTYPE, NAME, ([&] { \
-		SWITCH_DIMS(DIMS, \
-			__VA_ARGS__; \
-		); \
-	}));
-
-struct GridInfo{
-	I4 size;
-	I4 stride;
-};
-
-__host__ inline GridInfo MakeGridInfo(const index_t sizeX=1, const index_t sizeY=1, const index_t sizeZ=1, const index_t channels=1){
-	GridInfo grid;
-	memset(&grid, 0, sizeof(GridInfo));
-	grid.size.x = sizeX;
-	grid.size.y = sizeY;
-	grid.size.z = sizeZ;
-	grid.size.w = channels;
-	grid.stride.x = 1;
-	grid.stride.y = sizeX;
-	grid.stride.z = sizeX*sizeY;
-	grid.stride.w = sizeX*sizeY*sizeZ;
-	return grid;
-}
-
-__device__ inline I4 unflattenIndex(const index_t idx, const I4 &size, const I4 &stride){
-	return {.a={idx%size.x, (idx/stride.y)%size.y, (idx/stride.z)%size.z, (idx/stride.w)%size.w}};
-}
-__device__ inline I4 unflattenIndex(const index_t idx, const GridInfo &grid){
-	return unflattenIndex(idx, grid.size, grid.stride);
-}
-
-__device__ inline index_t flattenIndex(const I4 &pos, const I4 &stride){
-	return pos.x + stride.y*pos.y + stride.z*pos.z + stride.w*pos.w;
-}
-__device__ inline index_t flattenIndex(const I4 &pos, const GridInfo &grid){
-	//return pos.x + block.stride.y*pos.y + block.stride.z*pos.z + block.stride.w*pos.w;
-	return flattenIndex(pos, grid.stride);
-}
-
-template<typename scalar_t>
-inline __host__ __device__ scalar_t frac(const scalar_t v){
-	return v - floor(v);
-}
 
 template<typename scalar_t, int DIMS>
 __global__

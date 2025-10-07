@@ -22,6 +22,8 @@ _LOG = get_logger("PISOsim")
 
 from contextlib import nullcontext
 
+from lib.util.outputVtk import save_vtk
+
 class StopHandler:
     def __init__(self, log=None):
         self._log = log
@@ -306,6 +308,42 @@ def update_advective_boundaries(domain, bounds, velms, dt, tol=None):
                 raise TypeError
     
     balance_boundary_fluxes(domain, bounds, tol=tol)
+        
+
+def update_advective_boundaries_static(domain, bounds, velms, dt):
+
+    boundaries = []
+    for blockIdx in range(domain.getNumBlocks()):
+        block = domain.getBlock(blockIdx)
+        for boundIdx in range(domain.getSpatialDims()*2):
+            bound = block.getBoundary(boundIdx)
+            if isinstance(bound, (PISOtorch.VaryingDirichletBoundary, PISOtorch.StaticDirichletBoundary)):
+                boundaries.append((boundIdx, bound))
+    
+    variable_boundaries = [_ for _ in boundaries if _[1] in bounds]
+
+        
+    for boundIdx, bound in variable_boundaries:
+        if isinstance(bound, PISOtorch.VaryingDirichletBoundary):
+            if boundIdx==0:
+                scal_slice = block.passiveScalar[...,:1]
+            elif boundIdx==1:
+                scal_slice = block.passiveScalar[...,-1:]
+            elif boundIdx==2:
+                scal_slice = block.passiveScalar[...,:1,:]
+            elif boundIdx==3:
+                scal_slice = block.passiveScalar[...,-1:,:]
+            elif boundIdx==4:
+                scal_slice = block.passiveScalar[...,:1,:,:]
+            elif boundIdx==5:
+                scal_slice = block.passiveScalar[...,-1:,:,:]
+            else:
+                raise RuntimeError
+            vel_m = torch.abs(velms[bounds.index(bound)])
+            scal_bound = bound.boundaryScalar
+            scal_bound.copy_(scal_bound - (dt*2*vel_m)*(scal_bound - scal_slice))
+        else:
+            raise TypeError
 
 
 def append_prep_fn(prep_fn, name, fn):
@@ -367,7 +405,7 @@ class Simulation:
            advect_passive_scalar:bool=True, pressure_time_step_normalized:bool=False, #advect_velocity:bool=True,
            velocity_corrector="FD", non_orthogonal:bool=True,
            differentiable:bool=False, exclude_advection_solve_gradients:bool=False, exclude_pressure_solve_gradients:bool=False,
-           log_dir:str=None, log_interval:int=0, log_images:bool=True, norm_vel:bool=False, block_layout=None, output_mode3D:str="slice", log_fn=None,
+           log_dir:str=None, log_interval:int=0, log_images:bool=True, log_vtk:bool=False, norm_vel:bool=False, block_layout=None, output_mode3D:str="slice", log_fn=None,
            output_resampling_coords=None, output_resampling_shape=None, output_resampling_fill_max_steps=0,
            save_domain_name:str=None, stop_fn=lambda: False):
         
@@ -411,6 +449,7 @@ class Simulation:
         self.log_dir = log_dir
         self.log_interval = log_interval
         self.log_images = log_images
+        self.log_vtk = log_vtk
         self.norm_vel = norm_vel
         self.block_layout = block_layout
         
@@ -466,6 +505,9 @@ class Simulation:
     
     def reset_image_out_idx(self):
         self.img_out_idx = 0
+        
+    def reset_vtk_out_idx(self):
+        self.vtk_out_idx = 0
     
     def save_domain_images(self, idx=None, max_mag=1, vel_exr=False):
         self._check_domain()
@@ -478,6 +520,16 @@ class Simulation:
         except:
             self.__LOG.exception("FAILED to save images %s:", _idx)
         if idx is None: self.img_out_idx += 1
+        
+    def save_domain_vtk(self, idx=None):
+        self._check_domain()
+        if self.log_dir is None: raise RuntimeError("no log_dir set.")
+        _idx = self.vtk_out_idx if idx is None else idx
+        try:
+            save_vtk(self.domain, self.log_dir, self.vtk_out_idx, vertex_coord_list=self.output_resampling_coords)
+        except:
+            self.__LOG.exception("FAILED to save vtk files %d:", idx)
+        if idx is None: self.vtk_out_idx += 1
     
 
     @property
@@ -716,6 +768,14 @@ class Simulation:
     def log_images(self, log_images):
         if not isinstance(log_images, bool): raise TypeError("log_images must be bool.")
         self.__log_images = log_images
+        
+    @property
+    def log_vtk(self):
+        return self.__log_vtk
+    @log_vtk.setter
+    def log_vtk(self, log_vtk):
+        if not isinstance(log_vtk, bool): raise TypeError("log_vtk must be bool.")
+        self.__log_vtk = log_vtk
     
     @property
     def norm_vel(self):
@@ -764,12 +824,19 @@ class Simulation:
     def reset_total_step(self):
         self.total_step = 0
     
-    def end_step(self):
+    def reset_total_time(self):
+        self.total_time = 0
+    
+    def end_step(self, time_step=0):
         self.total_step += 1
+        self.total_time += ntonp(time_step)[0]
+    
     
     def reset_step_counters(self):
         self.reset_total_step()
+        self.reset_total_time()
         self.reset_image_out_idx()
+        self.reset_vtk_out_idx()
     
     def linear_solve_scipy(self, csrMat:PISOtorch.CSRmatrix, rhs:torch.Tensor, x=None):
         with SAMPLE("scipy linear solve"):
@@ -839,7 +906,7 @@ class Simulation:
         
         for step in range(iterations):
             with SAMPLE("advect static"):
-                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                 
                 domain.UpdateDomainData()
                 
@@ -855,7 +922,7 @@ class Simulation:
                 for no_step in range(self.advect_non_ortho_steps):
                     self.__backend.SetupAdvectionScalar(domain, time_step, non_ortho_flags)# creates RHS for all channels
                     
-                    self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step)
+                    self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                     
                     with torch.no_grad() if self.exclude_advection_solve_gradients else nullcontext():
                         if split_scalar_channels:
@@ -890,12 +957,12 @@ class Simulation:
                 if not solve_ok or self._check_stop():
                     return solve_ok
                 
-                self.end_step()
+                self.end_step(time_step)
         
         return solve_ok
     
     # run pressure correction to make the velocity divergence free
-    def make_divergence_free(self, iterations=1):
+    def make_divergence_free(self, iterations=1, max_iter=1000):
         self._check_domain()
         corrector_steps = 1
         pressure_reuse_result = True and not self.differentiable # speeds up pressure_non_ortho_steps, no difference in result noticed.
@@ -914,7 +981,7 @@ class Simulation:
         
         for step in range(iterations):
             with SAMPLE("PISO step"):
-                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                 
                 domain.UpdateDomainData()
                 self.__backend.CopyVelocityResultFromBlocks(domain)
@@ -935,7 +1002,7 @@ class Simulation:
                             with torch.no_grad() if self.exclude_pressure_solve_gradients else nullcontext():
                                 x = None if (pstep==0 or not pressure_reuse_result) else domain.pressureResult
                                 pressureResult, solve_ok = self.linear_solve(domain.P, domain.pressureRHSdiv, x=x, #matrix_rank_deficient=False, residual_reset_step=100,
-                                    use_BiCG=self.pressure_use_BiCG, use_scipy=self.scipy_solve_pressure, tol=self.pressure_tol, return_best_result=self.pressure_return_best_result)
+                                    use_BiCG=self.pressure_use_BiCG, use_scipy=self.scipy_solve_pressure, tol=self.pressure_tol, return_best_result=self.pressure_return_best_result, max_iter=max_iter)
                                 del x
                             
                             if self.normalize_pressure_result:
@@ -960,7 +1027,7 @@ class Simulation:
                 if not solve_ok or self._check_stop():
                     return solve_ok
                 
-                self.end_step()
+                self.end_step(time_step)
         
         return solve_ok
     
@@ -991,7 +1058,7 @@ class Simulation:
                     self.__backend.CopyVelocityResultFromBlocks(domain)
                     last_vel = domain.velocityResult.clone().detach()
                 
-                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                self._run_prep_fn("PRE", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                 domain.UpdateDomainData()
                 
                 advection_matrix_for_velocity = False
@@ -1023,7 +1090,7 @@ class Simulation:
                             
                             self.__backend.SetupAdvectionScalar(domain, time_step, 0)
                             
-                            self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=0, local_step=step, time_step=time_step, total_step=self.total_step)
+                            self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=0, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                             
                             with torch.no_grad() if self.exclude_advection_solve_gradients else nullcontext():
                                 if split_scalar_channels:
@@ -1047,7 +1114,7 @@ class Simulation:
                             for no_step in range(self.advect_non_ortho_steps):
                                 self.__backend.SetupAdvectionScalar(domain, time_step, non_ortho_flags)
                                 
-                                self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step)
+                                self._run_prep_fn("POST_SCALAR_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                                 
                                 with torch.no_grad() if self.exclude_advection_solve_gradients else nullcontext():
                                     if split_scalar_channels:
@@ -1085,7 +1152,7 @@ class Simulation:
                     # DON'T use pressure from previous corrector steps, otherwise it's applied twice
                     apply_pressure_gradient = False
                     
-                    self._run_prep_fn("PRE_VELOCITY_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                    self._run_prep_fn("PRE_VELOCITY_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                     
                     #if self.density_viscosity is not None:
                     #    domain.setViscosity(viscosity)
@@ -1096,7 +1163,7 @@ class Simulation:
                     if not self.non_orthogonal: # orthogonal version with gradient/backprop support
                         self.__backend.SetupAdvectionVelocity(domain, time_step, 0, apply_pressure_gradient)
 
-                        self._run_prep_fn("POST_VELOCITY_SETUP", domain=domain, no_step=0, local_step=step, time_step=time_step, total_step=self.total_step)
+                        self._run_prep_fn("POST_VELOCITY_SETUP", domain=domain, no_step=0, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                         
                         with torch.no_grad() if self.exclude_advection_solve_gradients else nullcontext():
                             x = None if (not advect_use_prev_result) else domain.velocityResult
@@ -1112,7 +1179,7 @@ class Simulation:
                         for no_step in range(self.advect_non_ortho_steps):
                             self.__backend.SetupAdvectionVelocity(domain, time_step, non_ortho_flags, apply_pressure_gradient)
 
-                            self._run_prep_fn("POST_VELOCITY_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step)
+                            self._run_prep_fn("POST_VELOCITY_SETUP", domain=domain, no_step=no_step, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                             
                             with torch.no_grad() if self.exclude_advection_solve_gradients else nullcontext():
                                 x = None if (no_step==0 or not advect_non_ortho_reuse_result) else domain.velocityResult
@@ -1132,7 +1199,7 @@ class Simulation:
                     if not solve_ok:
                         return solve_ok
 
-                self._run_prep_fn("POST_PREDICTION", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                self._run_prep_fn("POST_PREDICTION", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                 
                 # can use stop handler in POST_PREDICTION to stop sim after advection.
                 if self._check_stop():
@@ -1144,7 +1211,7 @@ class Simulation:
                         if not self.non_orthogonal: # orthogonal version with gradient/backprop support
                             self.__backend.SetupPressureCorrection(domain, time_step, 0, pressure_use_face_transform, timeStepNorm=self.pressure_time_step_normalized)
                             
-                            self._run_prep_fn("POST_PRESSURE_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                            self._run_prep_fn("POST_PRESSURE_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                             
                             with torch.no_grad() if self.exclude_pressure_solve_gradients else nullcontext():
                                 pressureResult, solve_ok = self.linear_solve(domain.P, domain.pressureRHSdiv, x=None, #matrix_rank_deficient=False, residual_reset_step=100,
@@ -1158,7 +1225,7 @@ class Simulation:
                             domain.setPressureResult(pressureResult)
                             domain.UpdateDomainData()
                             
-                            self._run_prep_fn("POST_PRESSURE_RESULT", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                            self._run_prep_fn("POST_PRESSURE_RESULT", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                             
                         else: # non-ortho version
                             self.__backend.SetupPressureMatrix(domain, time_step, non_ortho_flags, pressure_use_face_transform)
@@ -1168,12 +1235,12 @@ class Simulation:
                                 if pstep==0:
                                     # build rhs (vector field) (and div(rhs) + non-ortho)
                                     self.__backend.SetupPressureRHS(domain, time_step, non_ortho_flags, pressure_use_face_transform, timeStepNorm=self.pressure_time_step_normalized)
-                                    #self._run_prep_fn("POST_PRESSURE_RHS", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                                    #self._run_prep_fn("POST_PRESSURE_RHS", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                                 else:
                                     # build only div(rhs) + non-ortho from existing rhs vector field
                                     self.__backend.SetupPressureRHSdiv(domain, time_step, non_ortho_flags, pressure_use_face_transform, timeStepNorm=self.pressure_time_step_normalized)
 
-                                self._run_prep_fn("POST_PRESSURE_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                                self._run_prep_fn("POST_PRESSURE_SETUP", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                                 
                                 with torch.no_grad() if self.exclude_pressure_solve_gradients else nullcontext():
                                     #_LOG.info("Start pressure solve #%d", cstep)
@@ -1190,7 +1257,7 @@ class Simulation:
                                         del P
                                         del pressureRHSdiv
                                     else:
-                                        pressureResult, solve_ok = self.linear_solve(domain.P, domain.pressureRHSdiv, x=x, #matrix_rank_deficient=False, residual_reset_step=100,
+                                        pressureResult, solve_ok = self.linear_solve(domain.P, domain.pressureRHSdiv, x=x, matrix_rank_deficient=False, residual_reset_step=100,
                                             use_BiCG=self.pressure_use_BiCG, use_scipy=self.scipy_solve_pressure, tol=self.pressure_tol,
                                             return_best_result=self.pressure_return_best_result)
                                     del x
@@ -1201,7 +1268,7 @@ class Simulation:
                                 domain.setPressureResult(pressureResult)
                                 domain.UpdateDomainData()
 
-                                self._run_prep_fn("POST_PRESSURE_RESULT", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                                self._run_prep_fn("POST_PRESSURE_RESULT", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                                 
                                 if not solve_ok:
                                     return solve_ok
@@ -1210,21 +1277,21 @@ class Simulation:
                                     break
                             
 
-                        self._run_prep_fn("POST_PRESSURE_NON_ORTHO", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                        self._run_prep_fn("POST_PRESSURE_NON_ORTHO", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                         
 
                         self.__backend.CopyPressureResultToBlocks(domain)
 
                         self.__backend.CorrectVelocity(domain, time_step, version=vcv, timeStepNorm=self.pressure_time_step_normalized) #vcv
 
-                        self._run_prep_fn("POST_VELOCITY_CORRECTION", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                        self._run_prep_fn("POST_VELOCITY_CORRECTION", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                             
                         if self._check_stop():
                             break
                 
                 self.__backend.CopyVelocityResultToBlocks(domain)
 
-                self._run_prep_fn("POST", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step)
+                self._run_prep_fn("POST", domain=domain, local_step=step, time_step=time_step, total_step=self.total_step, total_time=self.total_time)
                 
                 if self.convergence_tol is not None:
                     step_max_diff = torch.max(torch.abs(last_vel - domain.velocityResult)).cpu().numpy()
@@ -1235,7 +1302,7 @@ class Simulation:
                 if not solve_ok or self._check_stop():
                     break
 
-                self.end_step()
+                self.end_step(time_step)
         
         return solve_ok
     
@@ -1298,7 +1365,7 @@ class Simulation:
         
         domain = self.domain
 
-        if self.log_interval>0 and self.log_images and self.log_dir is None:
+        if self.log_interval>0 and (self.log_images or self.log_vtk) and self.log_dir is None:
             raise ValueError("need to specify log/output directory")
         self.__LOG.info("Starting sim with %d iterations, output in %s.", iterations, self.log_dir or "NONE")
         if log_domain:
@@ -1414,6 +1481,7 @@ class Simulation:
                                 torch.mean(vel_div_abs).cpu().numpy(),torch.min(vel_div_abs).cpu().numpy(),
                                 torch.max(vel_div_abs).cpu().numpy(), torch.sum(vel_div_abs).cpu().numpy())
                             if self.log_images: self.save_domain_images(max_mag=max_mag, vel_exr=vel_exr)
+                            if self.log_vtk: self.save_domain_vtk()
                     if self.log_fn is not None:
                         with SAMPLE("log fn"):
                             self.log_fn(domain=domain, out_dir=out_dir, it=it, out_it=self.img_out_idx, total_step=self.total_step)

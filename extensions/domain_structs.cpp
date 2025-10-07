@@ -1049,6 +1049,18 @@ std::string ConnectedBoundary::ToString() const {
 	return connections;
 } */
 
+/* Create a connection between 2 blocks
+directional face specification: [-x,+x,-y,+y,-z,+z] <-> [0,5]
+=> axis := face/2 ([x,y,z] <-> [0,2])
+=> direction := face%2, 0 is lower/negative side, 1 is upper/positive side
+	for "connectedAxis" the direction indicates if the connection is inverted (0 for same direction, 1 for inverted)
+
+face1 of block1 is connected to face2 of block2. for 2D and 3D, the remaining axes are also mapped.
+for block1:
+	face1 connects to face2
+	axis[(face1 / 2 + 1)%dims] is aligned to connectedAxis1. The connection is inverted if connectedAxis1%2==1.
+	axis[(face1 / 2 + 2)%dims] is aligned to connectedAxis2.
+*/
 void ConnectBlocks(std::shared_ptr<Block> block1, const dim_t face1, std::shared_ptr<Block> block2, const dim_t face2, const dim_t connectedAxis1, const dim_t connectedAxis2){
 	TORCH_CHECK(block1->getParentDomain()==block2->getParentDomain(), "The blocks must belong to the same domain.");
 	const dim_t spatialDims = block1->getSpatialDims();
@@ -2072,6 +2084,14 @@ torch::Tensor Block::getCellCoordinates() const{
 			return torch::empty(0);
 	}
 	
+}
+
+torch::Tensor Block::getCellSizes() const{
+	if(hasTransform()){
+		return torch::unsqueeze(torch::abs(m_transform.value().index({torch::indexing::Ellipsis, -1})), 1);
+	} else {
+		return torch::ones_like(pressure);
+	}
 }
 
 index_t Block::GetCoordinateOrientation() const {

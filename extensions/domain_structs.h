@@ -9,7 +9,7 @@
 #include <string>
 #include <type_traits>
 //#include <optional>
-#include <domain_structs_gpu.h>
+#include "domain_structs_gpu.h"
 //#include <include/tl/optional.hpp> trying c10::optional first
 
 #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
@@ -17,6 +17,12 @@
 #define CHECK_INPUT_CUDA(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 #define CHECK_HOST(x) TORCH_CHECK(!x.device().is_cuda(), #x " must be a host tensor")
 #define CHECK_INPUT_HOST(x) CHECK_HOST(x); CHECK_CONTIGUOUS(x)
+
+// template <typename T>
+// using optional = c10::optional<T>;
+// const auto nullopt = c10::nullopt;
+
+#include "optional.h"
 
 #define GET_DATA_PRT(name, m_name) \
 template <typename scalar_t> \
@@ -31,10 +37,6 @@ scalar_t* get##name##DataPtr() const { \
 }
 
 //#define DTOR_MSG
-
-template <typename T>
-using optional = c10::optional<T>;
-const auto nullopt = c10::nullopt;
 
 const torch::Dtype torch_kIndex = torch::kInt32;
 const torch::Dtype torch_kBoundaryType = torch::kInt8; // must match BoundaryConditionType in domain_structs_gpu.h
@@ -505,6 +507,7 @@ public:
 	bool hasTransform() const { return m_transform.has_value(); };
 	void setTransform(torch::Tensor &transform, optional<torch::Tensor> faceTransform); //NDHWT, T=transform data.
 	//void clearTransform();
+	torch::Tensor getCellSizes() const;
 
 	optional<torch::Tensor> m_faceTransform;
 	GET_OPTIONAL_DATA_PRT(FaceTransform, m_faceTransform);
@@ -566,7 +569,6 @@ private:
 
 void ConnectBlocks(std::shared_ptr<Block> block1, const dim_t face1, std::shared_ptr<Block> block2, const dim_t face2, const dim_t connectedAxis1, const dim_t connectedAxis2);
 void ConnectBlocks(std::shared_ptr<Block> block1, const std::string &face1, std::shared_ptr<Block> block2, const std::string &face2, const std::string &connectedAxis1, const std::string &connectedAxis2);
-
 
 struct Domain : public std::enable_shared_from_this<Domain>{
 	

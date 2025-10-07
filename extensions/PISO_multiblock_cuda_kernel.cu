@@ -99,7 +99,6 @@ __device__ index_t GetBlockIdxForThreadBlock(const index_t threadBlockIdx){
 }
 
 
-
 #define SWITCH_DIMS_CASE(DIM, ...) \
 	case DIM: { \
 		const index_t dim = DIM; \
@@ -329,7 +328,6 @@ I4 computeConnectedPos(const I4 pos, const index_t boundaryDim, const ConnectedB
 	const BlockGPU<scalar_t> *p_connectedBlock = domain.blocks + p_cb->connectedGridIndex;
 	I4 connectedPos = pos; //sets w
 	
-	
 	index_t connectedAxis = p_cb->axes.a[0]>>1;
 	//connectedPos.w = connectedAxis;
 	connectedPos.a[connectedAxis] = (p_cb->axes.a[0] & 1) ? p_connectedBlock->size.a[connectedAxis] - 1 -borderOffset: borderOffset;
@@ -343,6 +341,7 @@ I4 computeConnectedPos(const I4 pos, const index_t boundaryDim, const ConnectedB
 			connectedPos.a[connectedAxis] = (p_cb->axes.a[2] & 1) ? p_connectedBlock->size.a[connectedAxis]-1 - pos.a[axis] : pos.a[axis];
 		}
 	}
+	
 	return connectedPos;
 }
 
@@ -495,7 +494,6 @@ __device__ scalar_t VelocityToContravariantComponent(const Vector<scalar_t,DIMS>
 	}
 }
 
-
 template <typename scalar_t, int DIMS>
 __device__ scalar_t VelocityToContravariantComponentBoundaryVarying(const Vector<scalar_t,DIMS> &vel, const VaryingDirichletBoundaryGPU<scalar_t> *p_bound, I4 pos){
 	if(p_bound->hasTransform){
@@ -582,7 +580,6 @@ __device__ Vector<scalar_t,DIMS> getVelocityFromBlock(I4 pos, const BlockGPU<sca
 	return vel;
 }
 
-
 template <typename scalar_t, int DIMS>
 __device__ Vector<scalar_t,DIMS> getVelocityFromBoundaryVarying(I4 pos, const VaryingDirichletBoundaryGPU<scalar_t> *p_bound){
 	Vector<scalar_t,DIMS> vel = {.a={0}};
@@ -655,7 +652,6 @@ __device__ inline scalar_t getContravariantComponent(const I4 pos, const BlockGP
 		}
 	}
 }
-
 
 template <typename scalar_t, int DIMS>
 __device__ inline scalar_t getContravariantComponentBoundaryVarying(const I4 pos, const VaryingDirichletBoundaryGPU<scalar_t> *p_bound){
@@ -734,7 +730,6 @@ __device__ inline scalar_t getContravariantComponentDimSwitch(const I4 pos, cons
 		return 0;
 	}
 }
-
 
 template <typename scalar_t>
 __device__ inline scalar_t getContravariantComponentBoundaryVaryingDimSwitch(const I4 pos, const VaryingDirichletBoundaryGPU<scalar_t> *p_bound, const DomainGPU<scalar_t> &domain){
@@ -1096,8 +1091,7 @@ __device__ inline Vector<scalar_t,DIMS> getPressureGradientFVM(const BlockGPU<sc
 			p = block.pressure[flatIndex];
 		}
 		
-		
-		// like the flux computation. computes the fluxes of the individual cells first before interpolating to the face.
+		// version more like the flux computation. computes the fluxes of the individual cells first before interpolating to the face.
 		const Vector<scalar_t, DIMS> fluxN = p_T->Minv.v[axisNeighbor] * (p_T->det * p * transformSign);
 		switch(gradientInterpolation){
 			case 0:
@@ -3063,8 +3057,6 @@ scalar_t getNonOrthoLaplaceRHS_v2(const I4 &pos, const BlockGPU<scalar_t> &block
 		const bool atBound = isAtBound(pos, face, &block); //isUpper ? pos.a[axis]==(block.size.a[axis]-1) : pos.a[axis]==0; // face is at a boundary
 		const bool prescribedBound = atBound && isEmptyBound(face, block.boundaries);
 
-		// face tangent direction(s), the non-orthogonal parts
-
 		if(prescribedBound){
 			// pressure boundaries are fixed to grad=0
 			//if(gridDataTypeToBaseType(type)==GridDataType::PRESSURE){ continue; }
@@ -3083,8 +3075,6 @@ scalar_t getNonOrthoLaplaceRHS_v2(const I4 &pos, const BlockGPU<scalar_t> &block
 			for(index_t dim=1; dim<DIMS; ++dim){
 				const index_t tAxis = (axis+dim)%DIMS;
 				// check both ends of the tangent axis
-				//const index_t tFaceLower = tAxis<<1;
-				//const index_t tFaceUpper = tFaceLower + 1;
 				const bool tLowerAtBound = pos.a[tAxis]==0;
 				const bool tUpperAtBound = pos.a[tAxis]==(block.size.a[tAxis]-1);
 				// due to minimum resolution the cell can't be at 2 opposing boundaries.
@@ -3622,7 +3612,7 @@ __global__ void PISO_build_matrix(DomainGPU<scalar_t> *p_domain, const scalar_t 
 	}
 	__syncthreads();
 
-	//naive implementation, 1 thread per cell, no sharing
+	//first naive implementation, 1 thread per cell, no sharing
 	// each thread/cell builds its row in the matrix
 	index_t repetitions = numThreadBlocks/gridDim.x; // ceilDiv(numThreadBlocks, gridDim.x);
 	if(blockIdx.x<(numThreadBlocks - gridDim.x*repetitions)){
@@ -3837,6 +3827,7 @@ __global__ void PISO_build_matrix(DomainGPU<scalar_t> *p_domain, const scalar_t 
 							break;
 						}
 					}
+					
 					diag += (1 - slip) * 2 * viscosity_p * alpha_p[dim];
 					indices[bound+1] = -1; //invalid/unused
 				}
@@ -4139,6 +4130,7 @@ __global__ void kPISO_build_scalar_advection_RHS(DomainGPU<scalar_t> *p_domain, 
 						}else{ // NEUMANN
 							tempRHS += scalar * viscosity;
 						}
+						
 						break;
 					}
 					case BoundaryType::VALUE:
@@ -4244,12 +4236,6 @@ __global__ void kPISO_build_scalar_advection_RHS_GRAD(DomainGPU<scalar_t> *p_dom
 					//const scalar_t flux = s_block.boundaries[bound].vdb.velocity[flattenIndex(tempPos, s_block.boundaries[bound].vdb.stride)] * faceNormal;
 					const scalar_t flux = getContravariantComponentBoundaryFixedDimSwitch(tempPos, &s_block.boundaries[bound].fb, s_domain) * faceNormal;
 					
-					// from advection
-					//tempRHS -= scalar * flux;
-					// from viscosity
-					// TODO: simple slip from boundary type
-					//const scalar_t slip = s_block.boundaries[bound].fb.passiveScalar.boundaryType==BoundaryConditionType::DIRICHLET ? 0 : 1;
-					//tempRHS += scalar * (1-slip) * viscosity * 2 * alpha;
 					
 					// gradients
 					
@@ -4418,7 +4404,6 @@ __global__ void kPISO_build_advection_RHS_GRAD(DomainGPU<scalar_t> *p_domain, co
 			const index_t tempFlatPos = flattenIndex(tempPos, s_block);
 			
 			scalar_t RHSgrad = s_domain.velocityRHS_grad[flatPos + s_block.globalOffset + s_domain.numCells*dim];
-			
 
 			scatterBlockVelocitySource_GRAD(RHSgrad, tempPos, &s_block);
 			
@@ -4427,11 +4412,6 @@ __global__ void kPISO_build_advection_RHS_GRAD(DomainGPU<scalar_t> *p_domain, co
 			// non-ortho laplace gradients w.r.t. velocityResult
 			scatterNonOrthoLaplaceRHSDimSwitch_v2_GRAD<scalar_t>(-RHSgrad, tempPos, s_block, s_domain, nonOrthoFlags,
 				GridDataType::VELOCITY_RESULT_GRAD, true, false, false);
-			
-			// non-ortho laplace gradients w.r.t. viscosity, TODO: merge into scatterNonOrthoLaplaceRHSDimSwitch_v2_GRAD for per-cell treatment.
-			//scalar_t viscosity_grad = -RHSgrad * getNonOrthoLaplaceRHSDimSwitch_v2<scalar_t>(tempPos, s_block, s_domain, nonOrthoFlags, GridDataType::VELOCITY_RESULT, false, false, false);
-			
-			// TODO: grad from boundaries, w.r.t. viscosity and boundary velocity 
 			
 			// gradients from/for boundaries
 			for(index_t bound=0; bound<(s_domain.numDims*2); ++bound){ 
@@ -4682,7 +4662,6 @@ template <typename scalar_t, int DIMS>
 void _SetupAdvectionVelocityEulerImplicitRHS(std::shared_ptr<Domain> domain, const torch::Tensor &timeStepCPU, const int8_t nonOrthoFlags, const bool applyPressureGradient){
 	
 	SETUP_KERNEL_PER_CELL(domain, blockIdxByThreadBlock, threadBlockOffsetInBlock)
-	
 	
 	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
 	BEGIN_SAMPLE;
@@ -5489,7 +5468,6 @@ __global__ void k_pressureRHSaddNonOrthoComponents(DomainGPU<scalar_t> *p_domain
 		
 		// - non-orthogonal transformation
 		if((nonOrthoFlags & NON_ORTHO_DIRECT_RHS) | (nonOrthoFlags & NON_ORTHO_DIAGONAL_RHS)){
-			//S = getNonOrthoLaplacePressureRHSDimSwitch<scalar_t>(pos, s_block, s_domain, nonOrthoFlags);
 			S += getNonOrthoLaplaceRHSDimSwitch_v2<scalar_t>(pos, s_block, s_domain, nonOrthoFlags, GridDataType::PRESSURE_RESULT, false, true, useFaceTransform);
 		}
 		
@@ -6462,6 +6440,101 @@ torch::Tensor ComputePressureGradient(std::shared_ptr<Domain> domain, const bool
 	}));
 	
 	return gradient;
+}
+
+template<typename scalar_t, int DIMS>
+__global__
+void k_computeSpatialVelocityGradients(DomainGPU<scalar_t> *p_domain, scalar_t **pp_blockDimGradients_out, 
+		const index_t *p_blockIdxByThreadBlock, const index_t *p_threadBlockOffsetInBlock, const index_t numThreadBlocks){
+	
+	
+	KERNEL_PER_CELL_LOOP(p_domain, p_blockIdxByThreadBlock, p_threadBlockOffsetInBlock, numThreadBlocks,
+		// provides s_block, targetBlockIdx, flatPos
+		
+		const I4 pos = unflattenIndex(flatPos, s_block);
+		
+		for(index_t dim=0; dim<DIMS; ++dim){
+			// spatial gradients of the dim'th velocity component
+			I4 tempPos = pos;
+			tempPos.w = dim;
+			Vector<scalar_t, DIMS> g = getBlockDataGradient<scalar_t, DIMS>(tempPos, s_block, s_domain, GridDataType::VELOCITY);
+			
+			for(index_t i=0; i<DIMS ; ++i){
+				tempPos.w = i;
+				pp_blockDimGradients_out[targetBlockIdx*DIMS + dim][flattenIndex(tempPos, s_block)] = g.a[i];
+			}
+		}
+	)
+}
+template <typename scalar_t>
+void _ComputeSpatialVelocityGradients(std::shared_ptr<Domain> domain, std::vector<std::vector<torch::Tensor>> &gradients){
+	
+	const size_t numBlocks = domain->getNumBlocks();
+	const size_t numDims = domain->getSpatialDims();
+	const size_t numTensors = numBlocks * numDims;
+	
+	const size_t alignmentBytes = alignof(scalar_t*);
+	const size_t atlasSizeBytes = sizeof(scalar_t*) * numTensors;
+	size_t allocSizeBytes = atlasSizeBytes + alignmentBytes;
+	
+	auto byteOptions = torch::TensorOptions().dtype(torch::kUInt8).layout(torch::kStrided).device(domain->getDevice().type(), domain->getDevice().index());
+	auto byteOptionsCPU = torch::TensorOptions().dtype(torch::kUInt8).layout(torch::kStrided);
+	
+	torch::Tensor t_pointers_gradients_CPU = torch::zeros(allocSizeBytes, byteOptionsCPU);
+	torch::Tensor t_pointers_gradients_GPU = torch::zeros(allocSizeBytes, byteOptions);
+	
+	void *p_host = reinterpret_cast<void*>(t_pointers_gradients_CPU.data_ptr<uint8_t>());
+	void *p_device = reinterpret_cast<void*>(t_pointers_gradients_GPU.data_ptr<uint8_t>());
+	
+	TORCH_CHECK(std::align(alignmentBytes, atlasSizeBytes, p_host, allocSizeBytes), "Failed to align CPU block viscosity atlas.")
+	TORCH_CHECK(std::align(alignmentBytes, atlasSizeBytes, p_device, allocSizeBytes), "Failed to align GPU block viscosity atlas.")
+	
+	// pointer to host memory containing device pointers
+	scalar_t **pp_gradients_host = reinterpret_cast<scalar_t**>(p_host);
+	for(size_t i=0; i<numTensors; ++i){
+		pp_gradients_host[i] = gradients[i/numDims][i%numDims].data_ptr<scalar_t>();
+	}
+	
+	CopyToGPU(p_device, p_host, atlasSizeBytes);
+	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+	
+	SETUP_KERNEL_PER_CELL(domain, blockIdxByThreadBlock, threadBlockOffsetInBlock)
+	
+	// gradient
+	BEGIN_SAMPLE;
+	SWITCH_DIMS(numDims,
+		k_computeSpatialVelocityGradients<scalar_t, dim><<<blocks, threads>>>(
+				reinterpret_cast<DomainGPU<scalar_t>*>(domain->atlas.p_device), reinterpret_cast<scalar_t**>(p_device),
+				p_blockIdxByThreadBlock, p_threadBlockOffsetInBlock, blockIdxByThreadBlock.size()
+			);
+	);
+	CUDA_CHECK_RETURN(cudaDeviceSynchronize());
+	END_SAMPLE("Spatial Velocity Gradient");
+	
+}
+std::vector<std::vector<torch::Tensor>> ComputeSpatialVelocityGradients(std::shared_ptr<Domain> domain){
+	
+	TORCH_CHECK(domain->getNumBlocks()>0, "Domain does not contain blocks.")
+	//TORCH_CHECK(domain->getNumBlocks()<2, "Multi-block is not yet implemented.")
+	TORCH_CHECK(domain->IsInitialized(), "Domain is not initialized.")
+	TORCH_CHECK(!domain->IsTensorChanged(), "Domain's tensors have been changed, use UpdateDomain() to set the new pointers.");
+	
+	std::vector<std::vector<torch::Tensor>> gradients;
+	for(const auto &block : domain->getBlocks()){
+		std::vector<torch::Tensor> blockGradients;
+		for(index_t dim=0; dim < domain->getSpatialDims(); ++dim){
+			blockGradients.push_back(torch::zeros_like(block->velocity));
+		}
+		gradients.push_back(blockGradients);
+	}
+	
+	AT_DISPATCH_FLOATING_TYPES(domain->getDtype(), "ComputeSpatialVelocityGradients", ([&] {
+		_ComputeSpatialVelocityGradients<scalar_t>(
+			domain, gradients
+		);
+	}));
+	
+	return gradients;
 }
 
 

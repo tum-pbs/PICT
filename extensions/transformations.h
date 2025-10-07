@@ -4,6 +4,8 @@
 #define _INCLUDE_TRANSFORMATIONS
 
 #include "custom_types.h"
+#include <cmath>
+
 
 #ifdef __CUDACC__
 #define HOST_DEVICE __host__ __device__
@@ -53,6 +55,19 @@ union Vector<scalar_t, 4>{
     };
 	scalar_t a[4]; //row, col
 };
+
+template <typename scalar_t, index_t LENGTH>
+HOST_DEVICE Vector<scalar_t, LENGTH - 1> drop_element(Vector<scalar_t, LENGTH> v, index_t drop_index){
+    Vector<scalar_t, LENGTH - 1> ret;
+    index_t retIdx = 0;
+    for(index_t vIdx = 0; vIdx < LENGTH; vIdx++){
+        if(vIdx != drop_index){
+            ret.a[retIdx] = v.a[vIdx];
+            retIdx++;
+        }
+    }
+    return ret;
+}
 
 
 template <typename scalar_t, index_t SIZE>
@@ -269,6 +284,47 @@ inline HOST_DEVICE bool operator==(Vector<scalar_t, SIZE> a, const Vector<scalar
     return true;
 }
 
+template<typename scalar_t, index_t SIZE>
+inline HOST_DEVICE scalar_t norm(Vector<scalar_t, SIZE> v){
+    scalar_t acc = 0;
+    for(index_t i = 0; i < SIZE; i++){
+        acc += v.a[i] * v.a[i]; 
+    }
+    return std::sqrt(acc);
+}
+
+template<typename scalar_t, index_t SIZE>
+inline HOST_DEVICE Vector<scalar_t, SIZE> abs(Vector<scalar_t, SIZE> v){
+    for(index_t i = 0; i < SIZE; i++){
+        v.a[i] = abs(v.a[i]); 
+    }
+    return v;
+}
+
+template <typename scalar_t, index_t SIZE>
+inline HOST_DEVICE scalar_t dot(const Vector<scalar_t, SIZE> &a, const Vector<scalar_t, SIZE> &b){
+    scalar_t result=0;
+    for(index_t i=0; i<SIZE; ++i){
+        result += a.a[i]*b.a[i];
+    }
+    return result;
+}
+
+
+template <typename scalar_t>
+inline HOST_DEVICE scalar_t cross(const Vector<scalar_t, 2> &a, const Vector<scalar_t, 2> &b){
+    return a.a[0]*b.a[1] - a.a[1]*b.a[0];
+}
+
+template <typename scalar_t>
+inline HOST_DEVICE Vector<scalar_t, 3> cross(const Vector<scalar_t, 3> &a, const Vector<scalar_t, 3> &b){
+    return {.a={
+		a.a[1]*b.a[2] - a.a[2]*b.a[1],
+		a.a[2]*b.a[0] - a.a[0]*b.a[2],
+		a.a[0]*b.a[1] - a.a[1]*b.a[0]
+	}};
+}
+
 // MatrixSquare
 
 template <typename scalar_t, index_t SIZE>
@@ -291,13 +347,16 @@ inline HOST_DEVICE MatrixSquare<scalar_t, SIZE>& operator*=(MatrixSquare<scalar_
     return a;
 }
 
+
 template <typename scalar_t, index_t SIZE>
-inline HOST_DEVICE scalar_t dot(const Vector<scalar_t, SIZE> &a, const Vector<scalar_t, SIZE> &b){
-    scalar_t result=0;
-    for(index_t i=0; i<SIZE; ++i){
-        result += a.a[i]*b.a[i];
+inline HOST_DEVICE MatrixSquare<scalar_t, SIZE> transposed(MatrixSquare<scalar_t, SIZE> &a){
+	MatrixSquare<scalar_t, SIZE> b;
+	for(index_t i=0; i<SIZE; ++i){
+        for(index_t j=0; j<SIZE; ++j){
+            b.a[i][j] = a.a[j][i];
+        }
     }
-    return result;
+	return b;
 }
 
 template <typename scalar_t, index_t SIZE>
@@ -341,6 +400,15 @@ inline HOST_DEVICE Vector<scalar_t, SIZE> matmul(const Vector<scalar_t, SIZE> &v
         for(index_t col=0; col<SIZE; ++col){
             result.a[col] += m.a[row][col] * v.a[row];
         }
+    }
+    return result;
+}
+
+template <typename scalar_t, index_t SIZE>
+inline HOST_DEVICE MatrixSquare<scalar_t, SIZE> matmul(const MatrixSquare<scalar_t, SIZE> &mA, const MatrixSquare<scalar_t, SIZE> &mB){
+    MatrixSquare<scalar_t, SIZE> result = {.a={0}};
+    for(index_t row=0; row<SIZE; ++row){
+        result.v[row] = matmul(mA.v[row], mB);
     }
     return result;
 }
