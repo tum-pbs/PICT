@@ -156,6 +156,12 @@ class CovarianceOnlineParallel_Torch:
 
         self.update(n, mean_x, mean_y, C, record_step)
 
+        # direct update from "weighted batched version"
+        #n = self.n + np.prod([data_x.size(dim) for dim in self.dims]).tolist()
+        #mean_x = self.mean_x + torch.sum(data_x - self.mean_x, dim=self.dims, keepdim=True) / n
+        #mean_y = self.mean_y + torch.sum(data_y - self.mean_y, dim=self.dims, keepdim=True) / n
+        #C = self.C + torch.sum((data_x - mean_x) * (data_y - self.mean_y))
+
     
     def save(self, path, save_steps=True):
         data = {
@@ -411,6 +417,9 @@ class MultivariateMomentsOnlineParallel_Torch:
                 return 0
             if sum_moment==0:
                 return self.n
+                
+            if isinstance(moment, list):
+                moment = tuple(moment)
             
             if not moment in self.moments:
                 raise KeyError("Moment %s not available."%(moment,))
@@ -441,7 +450,7 @@ class MultivariateMomentsOnlineParallel_Torch:
         @classmethod
         def from_file(cls, path, start=0, end=None, device=None, dtype=torch.float32):
             if not (start==0 and (end is None)):
-                raise NotImplementedError("Sliced loading is not supported.") # needs step recording
+                raise NotImplementedError("Sliced loading is not supported: [%s:%s]"%(start, end)) # needs step recording
             
             with np.load(path) as np_file:
                 channels = np_file["channels"].tolist()
@@ -484,11 +493,11 @@ class MultivariateMomentsOnlineParallel_Torch:
         if any(len(moment)!=self.max_channels for moment in moments):
             raise ValueError("All moments must specify all channels.")
         
-        print("Requested moments:", self.moments, "(order:", self.max_order, ", channels:", self.max_channels, ")")
+        #print("Requested moments:", self.moments, "(order:", self.max_order, ", channels:", self.max_channels, ")")
         
         self._add_required_moments()
         
-        print("Required moments:", self.moments)
+        #print("Required moments:", self.moments)
         
         self.data = None #MultivariateMomentsData(self.moments, self.max_channels)
     
@@ -595,6 +604,11 @@ class MultivariateMomentsOnlineParallel_Torch:
             moment = torch_squeeze_multidim(moment, self.avg_dims)
         return moment
     
+    def get_moment_standardized(self, i, order, to_wall_fn=lambda x, o: x, squeeze=True):
+        moment_key = [0]*self.max_channels
+        moment_key[i] = order
+        return to_wall_fn(self.get_moment_normalized(moment_key), order) / (to_wall_fn(self.get_moment_normalized(self._get_moment_key(i,i)), 2) ** (order/2))
+    
     def save(self, path, save_steps=True):
         if save_steps:
             raise NotImplementedError
@@ -606,6 +620,18 @@ class MultivariateMomentsOnlineParallel_Torch:
         if not (new_data.channels==self.max_channels and new_data.get_moment_keys()==self.moments):
             raise IOError("loaded moment data does not match configuration.")
         self.data = new_data
+    
+    @classmethod
+    def from_file(cls, path, start=0, end=None, spatial_dims=3, avg_dims=[0,2], device=None, dtype=torch.float32):
+        # spatial_dims is currently unused
+        # avg_dims is only relevant when accumulating new data
+        data = MultivariateMomentsOnlineParallel_Torch.MultivariateMomentsData.from_file(path, start=start, end=end, device=device, dtype=dtype)
+        moments = data.get_moment_keys()
+        m = cls(moments, spatial_dims=spatial_dims, avg_dims=avg_dims)
+        if not (data.channels==m.max_channels and m.moments==moments):
+            raise RuntimeError("Error while loading moments data:\navailable moments: %s\nrequired moments: %s"%(moments, m.moments))
+        m.data = data
+        return m
 
 class TurbulentEnergyBudgetsOnlineParallel_Torch:
     def __init__(self, avg_dims=[0,2], grid_coordinates=None, with_forcing=False, u_wall=None):
@@ -988,6 +1014,58 @@ class TurbulentEnergyBudgetsOnlineParallel_Torch:
         for i, moments_grad in enumerate(self.moments_data_grad):
             moments_grad.load(os.path.join(path, "%s_grad_%04d.npz"%(name, i)), start=start, end=end, device=device, dtype=dtype)
 
+# https://arxiv.org/pdf/1908.05422 eq. (1)
+class TemporalTwoPointCorrelation_Online_torch:
+    def __init__(self, dims, record_steps=False, squeeze_dims=True):
+        self.dims = dims
+        self._squeeze_dims = squeeze_dims
+        self.record_steps = record_steps
+        
+        self.base_fluctuations = None
+        self.base_rms = None
+        
+        self.steps_coefficients = []
+        self.steps_time = []
+    
+    def _init_base(self, fluctuations):
+        self.base_fluctuations = fluctuations.clone()
+        self.base_rms = torch.sqrt(torch.mean(torch.square(self.base_fluctuations), dim=self.dims, keepdim=not self._squeeze_dims))
+    
+    def update(self, fluctuations, time):
+        if self.base_fluctuations is None:
+            self._init_base(fluctuations)
+        
+        mean_squares = torch.mean(self.base_fluctuations * fluctuations, dim=self.dims, keepdim=not self._squeeze_dims)
+        rms = torch.sqrt(torch.mean(torch.square(fluctuations), dim=self.dims, keepdim=not self._squeeze_dims))
+        
+        coefficient = mean_squares / (self.base_rms * rms)
+        self.steps_coefficients.append(ntonp(coefficient))
+        self.steps_time.append(time)
+    
+    def update_from_data(self, data, time):
+        mean = torch.mean(data, dim=self.dims, keepdim=True)
+        fluctuations = data - mean
+        
+        self.update(fluctuations, time)
+        
+    def save(self, path, save_steps=True):
+        data = {
+            "base_fluctuations": ntonp(self.base_fluctuations),
+            "base_rms": ntonp(self.base_rms),
+            "steps_coefficients": ntonp(self.steps_coefficients),
+            "steps_time": ntonp(self.steps_time),
+        }
+        
+        if self.record_steps and save_steps:
+            pass
+        
+        np.savez_compressed(path, **data)
 
-
+    def load(self, path, start=0, end=None, device=None, dtype=torch.float32):
+        with np.load(path) as np_file:
+            self.base_fluctuations = torch.tensor(np_file["base_fluctuations"], device=device, dtype=dtype)
+            self.base_rms = torch.tensor(np_file["base_rms"], device=device, dtype=dtype)
+            self.steps_coefficients = list(np_file["steps_coefficients"])
+            self.steps_time = list(np_file["steps_time"])
+            
 
