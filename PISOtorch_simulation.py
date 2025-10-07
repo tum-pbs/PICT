@@ -528,7 +528,7 @@ class Simulation:
         try:
             save_vtk(self.domain, self.log_dir, self.vtk_out_idx, vertex_coord_list=self.output_resampling_coords)
         except:
-            self.__LOG.exception("FAILED to save vtk files %d:", idx)
+            self.__LOG.exception("FAILED to save vtk files %s:", idx)
         if idx is None: self.vtk_out_idx += 1
     
 

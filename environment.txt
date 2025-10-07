@@ -11,3 +11,4 @@ numpy
 matplotlib
 imageio
 psutil
+pyvista

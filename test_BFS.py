@@ -377,7 +377,7 @@ def run_BFS(log_dir, name, iterations=100, time_step=1, res_scale=8, viscosity=5
 if __name__=="__main__":
     # create a new directory <time-step>_learning_sample in ./test_runs to use as base output directory
     run_dir = setup_run("./test_runs",
-        name="BFS-hao-v4e-4_in-auto_refined.05_it200-ts.25-adaptive_CG-maxIT5k_ortho_vel-init_char-vel-mean-out" #
+        name="BFS-v4e-4_in-auto_refined.05_it200-ts.25-adaptive_CG-maxIT5k_ortho_vel-init_char-vel-mean-out" #
     )
     LOG = get_logger("Main")
     stop_handler = PISOtorch_simulation.StopHandler(LOG)
@@ -386,8 +386,7 @@ if __name__=="__main__":
 
     #vortex_street_sample(run_dir, name="turbulent_open_r32", res_scale=32, iterations=2, time_step=0.1, viscosity=5e-3, closed_bounds=False, use_3D=False, dp=False, STOP_FN=stop_handler)
     
-    #run_BFS(run_dir, name="closed_r16-y64_out-g20", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
-    run_BFS(run_dir, name="closed_r16-y64_out-g20_cnt200", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler, load_domain_path='./test_runs/250909-125028_BFS-hao-v4e-4_in-auto_refined.05_it200-ts.25-adaptive_CG-maxIT5k_ortho_vel-init_char-vel-mean-out/0000_vortex_street_closed_r16-y64_out-g20/domain')
+    run_BFS(run_dir, name="closed_r16-y64_out-g20", res_scale=16, iterations=200, time_step=0.25, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
     #run_BFS(run_dir, name="closed_r32-y64_out-g7", res_scale=32, iterations=4, time_step=0.01, viscosity=4e-4, closed_bounds=True, use_3D=False, dp=False, STOP_FN=stop_handler)
 
 

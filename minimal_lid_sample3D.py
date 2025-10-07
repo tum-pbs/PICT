@@ -71,9 +71,9 @@ sim = PISOtorch_simulation.Simulation(domain=domain,
     pressure_return_best_result=False, # if the pressure solve should return its result with the lowest residual if the tolerance could not be reached
     velocity_corrector="FD", # The scheme used to compute pressure gradients for velocity correction, default is Finite Differences
     log_interval=1, norm_vel=True,
-    log_images=False,
-    log_vtk=True,
-    output_resampling_coords=[grid], output_resampling_shape=[x,y],
+    log_images=True,
+    log_vtk=False,
+    output_resampling_coords=[grid], output_resampling_shape=[x,y,z],
     log_dir=run_dir, save_domain_name="domain",
     stop_fn=stop_handler)
 
