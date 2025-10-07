@@ -6,7 +6,7 @@ import PISOtorch
 
 from matplotlib import pyplot as plt
 
-from lib.data.resample import sample_multi_coords_to_uniform_grid
+from lib.data.resample import sample_multi_coords_to_uniform_grid, make_meshgrid_AABB
 
 
 def tensor_to_numpy(tensor):
@@ -205,6 +205,14 @@ def save_np_png(data, path):
 def save_np_exr(data, path):
     imageio.imwrite(path, data, "exr")
 
+def save_np_img(data, path, image_format):
+    if image_format.lower()=="png":
+        save_np_png(data, path + ".png")
+    elif image_format.lower()=="exr":
+        save_np_exr(data, path + ".exr")
+    else:
+        raise IOError("Unsupported image format '%s'."%(image_format,))
+
 def pad_to_size(data, size_x, size_y, padding=0, pad_col=(0,)):
     assert isinstance(data, torch.Tensor) and data.dim()==3
     
@@ -299,15 +307,15 @@ def _resample_block_data(data_list, vertex_coord_list, resampling_out_shape, ndi
         out_shape = torch.tensor([resampling_out_shape]*ndims, dtype=torch.int32)
     else:
         raise TypeError("resampling_out_shape must be list, tensor, or int")
-    data = sample_multi_coords_to_uniform_grid(data_list, vertex_coord_list, out_shape, is_cell_coords=False, fill_max_steps=fill_max_steps)
     
+    data = sample_multi_coords_to_uniform_grid(data_list, vertex_coord_list, out_shape, is_cell_coords=False, fill_max_steps=fill_max_steps)
     #if ndims==3:
     #    raise NotImplementedError("TODO: implement 3D reduction.")
     
     return data
 
 def save_block_data_image(block_data, domain, path, name, id, min_val=0, max_val=1, normalize=False, pad_col=1, layout="H", axis3D=0, mode3D="slice",
-        vertex_coord_list=None, resampling_out_shape=10, fill_max_steps=0):
+        vertex_coord_list=None, resampling_out_shape=10, fill_max_steps=0, image_format='PNG'):
     
     if not (isinstance(block_data, (list, tuple)) and all(isinstance(_, torch.Tensor) for _ in block_data)):
         raise TypeError("block_data must be a list of tensors.")
@@ -382,9 +390,9 @@ def save_block_data_image(block_data, domain, path, name, id, min_val=0, max_val
     if channels not in [1,3]:
         imgs = torch.split(block_data, 1, dim=-1)
         for i, img in enumerate(imgs):
-            save_np_png(img.detach().cpu().numpy(), os.path.join(path, "%s_c%d_%04d.png"%(name, i, id,)))
+            save_np_img(img.detach().cpu().numpy(), os.path.join(path, "%s_c%d_%04d"%(name, i, id,)), image_format)
     else:
-        save_np_png(block_data.cpu().detach().numpy(), os.path.join(path, "%s_%04d.png"%(name, id,)))
+        save_np_img(block_data.cpu().detach().numpy(), os.path.join(path, "%s_%04d"%(name, id,)), image_format)
 
 def save_scalar_image(domain, path, name, id, min_val=0, max_val=1, normalize=False, pad_col=1, layout="H", axis3D=0, mode3D="slice",
         vertex_coord_list=None, resampling_out_shape=10, fill_max_steps=0):

@@ -17,7 +17,7 @@ def getInfoForPid(pid):
 filter_gpu = re.compile(r"\|\s+(?P<gpu>\d+)\s+(?P<name>.+)\s+(?P<persm>\w+)\s+\|\s+(?P<busid>[0-9A-F]{8}\:[0-9A-F]{2}\:[0-9A-F]{2}\.[0-9A-F])\s+(?P<disp>\w+)\s+\|")
 #filter_mem = re.compile(r".+\|\s+(\d+)MiB\s+/\s+(\d+)MiB\s+\|")#')
 # | 31%   54C    P2    61W / 250W |   1421MiB / 11177MiB |     28%      Default |
-filter_mem = re.compile(r"\|\s+(?P<fan>\d+)%\s+(?P<temp>\d+)(C|F)\s+(?P<perf>.+)\s+(?P<curpwr>\d+)W\s+/\s+(?P<maxpwr>\d+)W\s+\|\s+(?P<curmem>\d+)MiB\s+/\s+(?P<maxmem>\d+)MiB\s+\|\s+(?P<util>\d+)%\s+(?P<compm>.+)\s+\|")#')
+filter_mem = re.compile(r"\|\s+((?P<fan>\d+)%?|N/A)\s+(?P<temp>\d+)(C|F)\s+(?P<perf>.+)\s+(?P<curpwr>\d+)W\s+/\s+(?P<maxpwr>\d+)W\s+\|\s+(?P<curmem>\d+)MiB\s+/\s+(?P<maxmem>\d+)MiB\s+\|\s+(?P<util>\d+)%\s+(?P<compm>.+)\s+\|")#')
 #filter_process = re.compile(r'\|\s+(\d+)\s+(\d{1,6})\s+.+\s+([0-9a-zA-Z_/.-]+)\s+(\d+)MiB\s+\|')
 filter_process = re.compile(r'\|\s+(?P<gpu>\d+)(\s+.+)?\s+(?P<pid>\d{1,6})\s+.+\s+(?P<name>[0-9a-zA-Z_/.-]+)\s+(?P<mem>\d+)MiB\s+\|')
 def getGPUInfo(active_mem_threshold=0.05, verbose=False):
@@ -35,7 +35,7 @@ def getGPUInfo(active_mem_threshold=0.05, verbose=False):
             info[last_gpu]={'id':last_gpu, 'bus':g.group("busid"), 'processes':[]}
         elif m is not None and last_gpu!=-1:
             if verbose: print('{}: {:.03f}% Memory'.format(last_gpu, 100.0*float(m.group("curmem"))/float(m.group("maxmem"))))
-            info[last_gpu].update({'mem_used':int(m.group("curmem")), 'mem_max':int(m.group("maxmem")), 'util':float(m.group("util"))/100.0, 'fan':float(m.group("fan"))/100.0, 'temp':float(m.group("temp")), 'pwr_used':int(m.group("curpwr")),'pwr_max':int(m.group("maxpwr")) })
+            info[last_gpu].update({'mem_used':int(m.group("curmem")), 'mem_max':int(m.group("maxmem")), 'util':float(m.group("util"))/100.0, 'fan':float(-1 if m.group("fan") is None else m.group("fan"))/100.0, 'temp':float(m.group("temp")), 'pwr_used':int(m.group("curpwr")),'pwr_max':int(m.group("maxpwr")) })
             last_gpu = -1
         elif p is not None:
             pid = int(p.group("pid"))

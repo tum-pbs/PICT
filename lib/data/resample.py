@@ -23,6 +23,23 @@ def make_matrix_scaling(s):
     mat[-1,-1] = 1
     return mat
 
+def make_meshgrid_AABB(vertex_coords, cells_per_unit, dims, dtype=torch.float32):
+    vertex_coords = vertex_coords.view(dims, -1)
+    lower, _ = vertex_coords.min(dim=-1)
+    upper, _ = vertex_coords.max(dim=-1)
+    size = upper - lower
+    resolution = np.ceil(cells_per_unit * size.cpu().numpy()).astype(int)
+
+    grid = torch.meshgrid(*[torch.linspace(lower[dim], upper[dim], steps=resolution[dim]) for dim in range(dims)], indexing='xy')
+    grid = torch.stack(grid)
+    grid = torch.unsqueeze(grid, 0)
+
+    print("meshgrid_AABB:", grid.size())
+    print("meshgrid_AABB:", grid)
+    return grid
+
+    
+
 def make_uniform_transform_AABB_outer(vertex_coords, out_shape, dims, dtype=torch.float32):
     vertex_coords = vertex_coords.view(dims, -1)
     lower, _ = vertex_coords.min(dim=-1)
