@@ -54,6 +54,8 @@ We provide a few sample setup with extensive comments about simulation setup.
 For forward simulations `minimal_lid_sample.py`, `vortex_street_torus_sample.py`, and `test_airfoil.py` contain increasingly complex setups.
 For a learning setup `learning_sample.py` contains an example of learning a forcing term from a reference simulation, both with direct optimization and training a network.  
 
+Explanations how to reproduce the SGS learning for turbulent channel flows from the paper can be found in [TCF.md](TCF.md).
+
 ![Flow around a rotating cylidrical obstacle and an airfoil.](images/obstacle-flow_vis.jpg)
 
 ## Overview of the PICT System

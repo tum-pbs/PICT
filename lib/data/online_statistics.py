@@ -613,7 +613,8 @@ class MultivariateMomentsOnlineParallel_Torch:
         if save_steps:
             raise NotImplementedError
         
-        self.data.save(path)
+        if self.data is not None:
+            self.data.save(path)
 
     def load(self, path, start=0, end=None, device=None, dtype=torch.float32):
         new_data = MultivariateMomentsOnlineParallel_Torch.MultivariateMomentsData.from_file(path, start=start, end=end, device=device, dtype=dtype)
