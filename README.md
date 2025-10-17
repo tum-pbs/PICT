@@ -3,7 +3,8 @@
 
 # Official Repository of the PICT Solver
 
-Source code of the paper *PICT - A Differentiable, GPU-Accelerated Multi-Block PISO Solver for Simulation-Coupled Learning Tasks in Fluid Dynamics*:  
+Source code of the JCP paper *PICT - A Differentiable, GPU-Accelerated Multi-Block PISO Solver for Simulation-Coupled Learning Tasks in Fluid Dynamics*:  
+[Journal of Computational Physic](https://doi.org/10.1016/j.jcp.2025.114433)  
 [arXiv preprint](https://arxiv.org/abs/2505.16992)  
 
 Highlights:
