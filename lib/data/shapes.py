@@ -278,7 +278,6 @@ def interpolate_vertices_from_borders_2D(borders, x_weights=None, y_weights=None
             
         target_size = borders[1][y_idx] - borders[0][y_idx]
         size_diff = target_size - x_size
-        size_fac = target_size/x_size
         
         #for x_idx in range(1,res[1]-1):
         for x_idx in range(res[1]):
@@ -289,6 +288,7 @@ def interpolate_vertices_from_borders_2D(borders, x_weights=None, y_weights=None
             if np.any(np.isclose(x_size,0)):
                 x_val = x_val - x_start + size_diff * x_frac + borders[0][y_idx]
             else:
+                size_fac = target_size/x_size
                 x_val = (x_val - x_start)*size_fac + borders[0][y_idx]
             
             grid[0,0,y_idx, x_idx] = x_val[0]
