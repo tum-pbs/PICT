@@ -602,7 +602,7 @@ class Simulation:
             substeps = -1
         else:
             if not isinstance(substeps, numbers.Integral): raise TypeError("substeps must be integral type or 'ADAPTIVE'.")
-            if not substeps>0: raise ValueError("substeps must be positive.")
+            if not substeps<=1: raise ValueError("substeps more than 1 are not allowed.")
         self.__substeps = substeps
     
     @property
@@ -1356,8 +1356,7 @@ class Simulation:
     
     def run(self, iterations, static=False, log_domain=True):
         self._check_domain()
-        # time_step: physical time to pass per iteration and substep
-        # substeps: how many piso steps to make per iteration
+        # time_step: physical time to pass per iteration
         # corrector_steps: number of corrector steps in the PISO algorithm
         # static: only advect the passive scalar
         
@@ -1400,12 +1399,12 @@ class Simulation:
             adaptive_step = False
             time_step = None
             
-            if substeps>0:
-                pass # just fixed substeps. 1 iteration with have physical time = time_step*substeps.
-            elif substeps==-1:
+            if substeps==1: # Fixed Single Step
+                pass # just one time_step.
+            elif substeps==-1: # Fully Adaptive Step
                 # compute max time step for each iteration/substep based on current velocity. 1 iteration with have physical time = time_step.
                 adaptive_step = True
-            elif substeps==-2:
+            elif substeps==-2: # Pre-computed 
                 # compute max time step based on initial conditions, then keep it constant. 1 iteration with have physical time = time_step.
                 time_step, substeps = get_max_time_step(domain, time_step_target, CFL_cond, with_transformations=True)
                 self.__LOG.info("Setting time step to %.02e, substeps to %d based on initial conditions.", time_step, substeps)
