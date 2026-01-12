@@ -1306,7 +1306,10 @@ class Simulation:
         
         return solve_ok
     
-    def _PISO_adaptive_step(self, CFL_cond=None, max_subsetps=1000):
+    def _PISO_adaptive_step(self, CFL_cond=None, max_substeps=1000):
+        # time_step_target: The remaining physical simulation time to complete.
+        # ts: The actual time step size used for a single substep.
+
         self._check_domain()
         time_step_target = self.time_step
         domain = self.domain
@@ -1336,8 +1339,8 @@ class Simulation:
                 
                 #_LOG.info("Adaptive step v2: maxVel %f, substep %d, timestep %f, remaining time %f", max_vel_np, substep, ts, time_step_target)
                 
-                if substeps>max_subsetps and not warned:
-                    self.__LOG.warning("adaptive step (CFL=%.02f) results in more than %d substeps (%d).", CFL_cond, max_subsetps, substeps)
+                if substeps>max_substeps and not warned:
+                    self.__LOG.warning("adaptive step (CFL=%.02f) results in more than %d substeps (%d).", CFL_cond, max_substeps, substeps)
                     warned = True
                 elif substep==0 and self.print_adaptive_step_info: #
                     self.__LOG.info("Adaptive step %d substeps: %d. From CFL = %.02f, max vel = %.03e, time step = %.03e.", substep,
