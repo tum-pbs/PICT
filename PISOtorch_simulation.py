@@ -401,6 +401,8 @@ class Simulation:
            preconditionBiCG:bool=False, BiCG_precondition_fallback:bool=True, 
            advection_tol:float=None, pressure_tol:float=None, convergence_tol:float=None, solver_double_fallback:bool=False,
            advect_non_ortho_steps:int=1, pressure_non_ortho_steps:int=1,
+           advect_reuse_result:bool=False, # can destabilize turbulent simulations if True
+           pressure_reuse_result:bool=False, # seems safe to use
            normalize_pressure_result:bool=True, pressure_return_best_result:bool=False,
            advect_passive_scalar:bool=True, pressure_time_step_normalized:bool=False, #advect_velocity:bool=True,
            velocity_corrector="FD", non_orthogonal:bool=True,
@@ -429,6 +431,7 @@ class Simulation:
         self.advect_non_ortho_steps = advect_non_ortho_steps
         self.advection_tol = advection_tol
         self.advect_passive_scalar = advect_passive_scalar
+        self.advect_reuse_result = advect_reuse_result
         
         self.scipy_solve_pressure = scipy_solve_pressure
         self.pressure_use_BiCG = pressure_use_BiCG
@@ -437,6 +440,7 @@ class Simulation:
         self.normalize_pressure_result = normalize_pressure_result
         self.pressure_return_best_result = pressure_return_best_result
         self.pressure_time_step_normalized = pressure_time_step_normalized
+        self.pressure_reuse_result = pressure_reuse_result
         
         self.solver_double_fallback = solver_double_fallback
         self.linear_solve_max_iterations = 5000
@@ -652,6 +656,14 @@ class Simulation:
         self.__advection_use_BiCG = advection_use_BiCG
     
     @property
+    def advect_reuse_result(self):
+        return self.__advect_reuse_result
+    @advect_reuse_result.setter
+    def advect_reuse_result(self, advect_reuse_result):
+        if not isinstance(advect_reuse_result, bool): raise TypeError("advect_reuse_result must be bool.")
+        self.__advect_reuse_result = advect_reuse_result
+    
+    @property
     def advect_non_ortho_steps(self):
         return self.__advect_non_ortho_steps
     @advect_non_ortho_steps.setter
@@ -690,6 +702,14 @@ class Simulation:
     def pressure_use_BiCG(self, pressure_use_BiCG):
         if not isinstance(pressure_use_BiCG, bool): raise TypeError("pressure_use_BiCG must be bool.")
         self.__pressure_use_BiCG = pressure_use_BiCG
+    
+    @property
+    def pressure_reuse_result(self):
+        return self.__pressure_reuse_result
+    @pressure_reuse_result.setter
+    def pressure_reuse_result(self, pressure_reuse_result):
+        if not isinstance(pressure_reuse_result, bool): raise TypeError("pressure_reuse_result must be bool.")
+        self.__pressure_reuse_result = pressure_reuse_result
     
     @property
     def pressure_non_ortho_steps(self):
@@ -887,7 +907,7 @@ class Simulation:
     def advect_static(self, iterations, time_step=None):
         self._check_domain()
         solve_ok = True
-        advect_non_ortho_reuse_result = True and not self.differentiable
+        advect_non_ortho_reuse_result = self.advect_reuse_result and not self.differentiable
     
         if isinstance(iterations, torch.Tensor):
             iterations = iterations.numpy()[0]
@@ -965,7 +985,7 @@ class Simulation:
     def make_divergence_free(self, iterations=1, max_iter=1000):
         self._check_domain()
         corrector_steps = 1
-        pressure_reuse_result = True and not self.differentiable # speeds up pressure_non_ortho_steps, no difference in result noticed.
+        pressure_reuse_result = self.pressure_reuse_result and not self.differentiable # speeds up pressure_non_ortho_steps, no difference in result noticed.
         pressure_use_face_transform = False
         vcv = self._velocity_corrector_version
 
@@ -1036,9 +1056,9 @@ class Simulation:
         solve_ok = True
         if time_step is None:
             time_step = self.__get_time_step_torch()
-        advect_use_prev_result = True and not self.differentiable
-        advect_non_ortho_reuse_result = True and not self.differentiable
-        pressure_reuse_result = True and not self.differentiable # speeds up pressure_non_ortho_steps, no difference in result noticed.
+        advect_use_prev_result = self.advect_reuse_result and not self.differentiable
+        advect_non_ortho_reuse_result = self.advect_reuse_result and not self.differentiable
+        pressure_reuse_result = self.pressure_reuse_result and not self.differentiable # speeds up pressure_non_ortho_steps, no difference in result noticed.
         pressure_use_face_transform = False
         # velocity corrector version. use different pressure gradients: 0 default (finite volume), 1 for finite differences, 4 for correcting fluxes (orthogonal), 5 for finite volume, 6 FVM with face transformations
         vcv = self._velocity_corrector_version 
