@@ -190,6 +190,39 @@ def sample_multi_coords_to_uniform_grid(data_list, coords_list, out_shape, is_ce
     return out_data
 
 
+def make_multi_coords_coverage_mask(coords_list, out_shape, transform_uniform="AABB_OUTER"):
+    # 2D only. Mask for the output of sample_multi_coords_to_uniform_grid: 1 for output cells that lie inside the blocks
+    # given by the vertex coordinates in coords_list (NCHW with C=x,y), 0 for the rest, e.g. inside obstacles.
+    # Filling the holes of the resampled data (fill_max_steps) also fills the output cells outside of the blocks, the mask can be used to remove those again.
+    # The blocks are subdivided until the sub-cells are smaller than the output cells, then the sub-cell centers are sampled without filling.
+    assert len(coords_list) > 0
+    dims = 2
+    if not all(coords.dim()==4 and coords.size(1)==dims for coords in coords_list):
+        raise ValueError("Coverage mask is only supported for 2D vertex coordinates.")
+    out_shape = get_output_shape(out_shape, dims)
+    
+    vertex_coords = torch.cat([_.view(dims, -1) for _ in coords_list], dim=-1)
+    mat = get_uniform_transform(transform_uniform, vertex_coords, out_shape, dims, dtype=coords_list[0].dtype)
+    out_cell_size = torch.min(torch.linalg.vector_norm(mat[0,:dims,:dims], dim=0)).item()
+    
+    data_list = []
+    cell_coords_list = []
+    for coords in coords_list:
+        max_edge_x = torch.max(torch.linalg.vector_norm(coords[:,:,:,1:] - coords[:,:,:,:-1], dim=1)).item()
+        max_edge_y = torch.max(torch.linalg.vector_norm(coords[:,:,1:,:] - coords[:,:,:-1,:], dim=1)).item()
+        subdiv_x = max(1, int(np.ceil(max_edge_x/out_cell_size)))
+        subdiv_y = max(1, int(np.ceil(max_edge_y/out_cell_size)))
+        sub_coords = torch.nn.functional.interpolate(coords, size=((coords.size(-2)-1)*subdiv_y + 1, (coords.size(-1)-1)*subdiv_x + 1), mode="bilinear", align_corners=True)
+        cell_coords = coords_to_center_coords(sub_coords).contiguous()
+        cell_coords_list.append(cell_coords)
+        data_list.append(torch.ones_like(cell_coords[:,:1]))
+    
+    out_shape = out_shape.to(torch.int32) if isinstance(out_shape, torch.Tensor) else torch.tensor(out_shape, dtype=torch.int32)
+    coverage, _ = PISOtorch.SampleTransformedGridLocalToGlobalMulti(data_list, cell_coords_list, mat, out_shape, fillMaxSteps=0)
+    
+    return (coverage > 0.5).to(coverage.dtype)
+
+
 def sample_transform_from_uniform_grid(data, transform, transform_uniform="AABB_OUTER", boundary_mode="CLAMP"):
     shape = data.size()
     dims = len(shape)-2

@@ -52,7 +52,15 @@ To install, e.g., PyTorch 2.6 with CUDA 11.8, the last two steps of the setup be
 ## Examples
 
 We provide a few sample setup with extensive comments about simulation setup.
-For forward simulations `minimal_lid_sample.py`, `vortex_street_torus_sample.py`, and `test_airfoil.py` contain increasingly complex setups.
+For forward simulations `minimal_lid_sample.py`, `vortex_street_torus_sample.py`, and `airfoil_sample.py` contain increasingly complex setups.
+Further forward simulation setups:
+- `backward_facing_step_sample.py`: flow over a backward-facing step on a refined 5-block grid with an outflow buffer.
+- `karman_vortex_street_sample.py`: Kármán vortex street behind a rectangular obstacle in a closed channel, with the grid refined towards the obstacle.
+- `decaying_turbulence_sample.py`: 2D decaying turbulence in a periodic box.
+- `kolmogorov_flow_sample.py`: 2D Kolmogorov flow, turbulence driven by a sinusoidal forcing with linear damping.
+
+The backward-facing step and Kármán vortex street setups are adapted from the code of [INC](https://openreview.net/forum?id=s3Uk3lrfjy).  
+
 For a learning setup `learning_sample.py` contains an example of learning a forcing term from a reference simulation, both with direct optimization and training a network.  
 
 Explanations how to reproduce the SGS learning for turbulent channel flows from the paper can be found in [TCF.md](TCF.md).
