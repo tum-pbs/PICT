@@ -190,35 +190,39 @@ def sample_multi_coords_to_uniform_grid(data_list, coords_list, out_shape, is_ce
     return out_data
 
 
-def make_multi_coords_coverage_mask(coords_list, out_shape, transform_uniform="AABB_OUTER"):
-    # 2D only. Mask for the output of sample_multi_coords_to_uniform_grid: 1 for output cells that lie inside the blocks
-    # given by the vertex coordinates in coords_list (NCHW with C=x,y), 0 for the rest, e.g. inside obstacles.
+def make_multi_coords_coverage_mask(coords_list, out_shape, transform_uniform="AABB_OUTER", max_chunk_cells=2**23):
+    # Mask for the output of sample_multi_coords_to_uniform_grid: 1 for output cells that lie inside the blocks
+    # given by the vertex coordinates in coords_list (NC[D]HW with C=x,y[,z]), 0 for the rest, e.g. inside obstacles.
     # Filling the holes of the resampled data (fill_max_steps) also fills the output cells outside of the blocks, the mask can be used to remove those again.
     # The blocks are subdivided until the sub-cells are smaller than the output cells, then the sub-cell centers are sampled without filling.
+    # max_chunk_cells: the sub-cells are sampled in chunks of cell layers along the outermost axis, each with about this many sub-cells at most,
+    #   to limit the memory use for large 3D blocks.
     assert len(coords_list) > 0
-    dims = 2
-    if not all(coords.dim()==4 and coords.size(1)==dims for coords in coords_list):
-        raise ValueError("Coverage mask is only supported for 2D vertex coordinates.")
+    dims = coords_list[0].size(1)
+    if dims not in (2,3) or not all(coords.dim()==(dims+2) and coords.size(1)==dims for coords in coords_list):
+        raise ValueError("Coverage mask requires 2D or 3D vertex coordinates.")
     out_shape = get_output_shape(out_shape, dims)
     
     vertex_coords = torch.cat([_.view(dims, -1) for _ in coords_list], dim=-1)
     mat = get_uniform_transform(transform_uniform, vertex_coords, out_shape, dims, dtype=coords_list[0].dtype)
     out_cell_size = torch.min(torch.linalg.vector_norm(mat[0,:dims,:dims], dim=0)).item()
-    
-    data_list = []
-    cell_coords_list = []
-    for coords in coords_list:
-        max_edge_x = torch.max(torch.linalg.vector_norm(coords[:,:,:,1:] - coords[:,:,:,:-1], dim=1)).item()
-        max_edge_y = torch.max(torch.linalg.vector_norm(coords[:,:,1:,:] - coords[:,:,:-1,:], dim=1)).item()
-        subdiv_x = max(1, int(np.ceil(max_edge_x/out_cell_size)))
-        subdiv_y = max(1, int(np.ceil(max_edge_y/out_cell_size)))
-        sub_coords = torch.nn.functional.interpolate(coords, size=((coords.size(-2)-1)*subdiv_y + 1, (coords.size(-1)-1)*subdiv_x + 1), mode="bilinear", align_corners=True)
-        cell_coords = coords_to_center_coords(sub_coords).contiguous()
-        cell_coords_list.append(cell_coords)
-        data_list.append(torch.ones_like(cell_coords[:,:1]))
-    
     out_shape = out_shape.to(torch.int32) if isinstance(out_shape, torch.Tensor) else torch.tensor(out_shape, dtype=torch.int32)
-    coverage, _ = PISOtorch.SampleTransformedGridLocalToGlobalMulti(data_list, cell_coords_list, mat, out_shape, fillMaxSteps=0)
+    
+    coverage = None
+    for coords in coords_list:
+        # number of sub-cells per cell for each spatial dimension ([D]HW)
+        subdiv = [max(1, int(np.ceil(torch.max(torch.linalg.vector_norm(torch.diff(coords, dim=dim), dim=1)).item()/out_cell_size)))
+            for dim in range(2, dims+2)]
+        num_layers = coords.size(2) - 1
+        layer_sub_cells = int(np.prod([(size-1)*s for size, s in zip(coords.shape[3:], subdiv[1:])]))*subdiv[0]
+        layers_per_chunk = max(1, max_chunk_cells//layer_sub_cells)
+        for start in range(0, num_layers, layers_per_chunk):
+            chunk = coords[:,:,start:min(start + layers_per_chunk, num_layers) + 1]
+            sub_coords = torch.nn.functional.interpolate(chunk, size=[(size-1)*s + 1 for size, s in zip(chunk.shape[2:], subdiv)],
+                mode="bilinear" if dims==2 else "trilinear", align_corners=True)
+            cell_coords = coords_to_center_coords(sub_coords).contiguous()
+            chunk_coverage, _ = PISOtorch.SampleTransformedGridLocalToGlobalMulti([torch.ones_like(cell_coords[:,:1])], [cell_coords], mat, out_shape, fillMaxSteps=0)
+            coverage = chunk_coverage if coverage is None else torch.maximum(coverage, chunk_coverage)
     
     return (coverage > 0.5).to(coverage.dtype)
 

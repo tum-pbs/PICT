@@ -309,7 +309,7 @@ def _resample_block_data(data_list, vertex_coord_list, resampling_out_shape, ndi
         raise TypeError("resampling_out_shape must be list, tensor, or int")
     
     data = sample_multi_coords_to_uniform_grid(data_list, vertex_coord_list, out_shape, is_cell_coords=False, fill_max_steps=fill_max_steps)
-    if fill_max_steps>0 and ndims==2:
+    if fill_max_steps>0:
         # filling the holes also extends the data into areas without blocks (e.g. obstacles), remove it there again
         data = data * make_multi_coords_coverage_mask(vertex_coord_list, out_shape)
     #if ndims==3:

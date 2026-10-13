@@ -54,13 +54,13 @@ To install, e.g., PyTorch 2.6 with CUDA 11.8, the last two steps of the setup be
 We provide a few sample setup with extensive comments about simulation setup.
 For forward simulations `minimal_lid_sample.py`, `vortex_street_torus_sample.py`, and `airfoil_sample.py` contain increasingly complex setups.
 Further forward simulation setups:
-- `backward_facing_step_sample.py`: flow over a backward-facing step on a refined 5-block grid with an outflow buffer.
+- `backward_facing_step_sample.py`: flow over a backward-facing step on a refined 5-block grid with an outflow buffer. In 2D, or in 3D with a periodic span starting from the 2D flow.
 - `karman_vortex_street_sample.py`: Kármán vortex street behind a rectangular obstacle in a closed channel, with the grid refined towards the obstacle.
-- `decaying_turbulence_sample.py`: 2D decaying turbulence in a periodic box.
+- `decaying_turbulence_sample.py`: decaying turbulence in a periodic box, in 2D or 3D.
 - `kolmogorov_flow_sample.py`: 2D Kolmogorov flow, turbulence driven by a sinusoidal forcing with linear damping.
-- `cylinder_channel_sample.py`: flow around a cylinder in a channel (the benchmark of Schäfer & Turek) on a 5-block O-grid.
-- `airfoil_channel_sample.py`: NACA 0012 airfoil at an angle of attack in a channel, on a 6-block grid refined towards the airfoil.
-- `rayleigh_benard_sample.py`: 2D Rayleigh-Bénard convection, the temperature is a passive scalar that drives the flow through buoyancy.
+- `cylinder_channel_sample.py`: flow around a cylinder in a channel (the benchmark of Schäfer & Turek) on a 5-block O-grid. In 2D, or in 3D with a periodic span starting from the 2D flow.
+- `airfoil_channel_sample.py`: NACA 0012 airfoil at an angle of attack in a channel, on a 6-block grid refined towards the airfoil. In 2D, or in 3D with a periodic span starting from the 2D flow.
+- `rayleigh_benard_sample.py`: Rayleigh-Bénard convection in 2D or 3D, the temperature is a passive scalar that drives the flow through buoyancy.
 - `turbulent_channel_flow_sample.py`: 3D turbulent channel flow at Re<sub>τ</sub>=180 in a small channel.
 
 The backward-facing step and Kármán vortex street setups are adapted from the code of [INC](https://openreview.net/forum?id=s3Uk3lrfjy).  
